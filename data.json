@@ -1,0 +1,222 @@
+[
+  {
+    "hospital_id": "H001",
+    "hospital_name": "Sunrise Multispeciality Hospital",
+    "address": {
+      "street": "45 Vijay Nagar Main Road",
+      "area": "Vijay Nagar",
+      "city": "Indore",
+      "state": "Madhya Pradesh",
+      "pincode": "452010",
+      "country": "India"
+    },
+    "phone": "+91-731-4001001",
+    "email": "info@sunrise-mock.example",
+    "departments": [
+      "Cardiology",
+      "Neurology",
+      "Orthopedics",
+      "General Medicine"
+    ],
+    "doctors": [
+      {
+        "doctor_id": "D001",
+        "name": "Dr. Arjun Mehta",
+        "degree": "MBBS, MD, DM",
+        "specialization": "Cardiology",
+        "experience_years": 14,
+        "designation": "Senior Cardiologist",
+        "languages": ["English", "Hindi"],
+        "consultation_fee": 900,
+        "availability": "Monday to Saturday, 10:00 AM - 2:00 PM"
+      },
+      {
+        "doctor_id": "D002",
+        "name": "Dr. Neha Sharma",
+        "degree": "MBBS, MD",
+        "specialization": "Neurology",
+        "experience_years": 9,
+        "designation": "Consultant Neurologist",
+        "languages": ["English", "Hindi"],
+        "consultation_fee": 800,
+        "availability": "Monday, Wednesday and Friday, 3:00 PM - 6:00 PM"
+      }
+    ]
+  },
+  {
+    "hospital_id": "H002",
+    "hospital_name": "Green Valley Medical Centre",
+    "address": {
+      "street": "18 Ring Road",
+      "area": "Palasia",
+      "city": "Indore",
+      "state": "Madhya Pradesh",
+      "pincode": "452001",
+      "country": "India"
+    },
+    "phone": "+91-731-4002002",
+    "email": "contact@greenvalley-mock.example",
+    "departments": [
+      "Pediatrics",
+      "Dermatology",
+      "General Medicine",
+      "Gynecology"
+    ],
+    "doctors": [
+      {
+        "doctor_id": "D003",
+        "name": "Dr. Riya Kapoor",
+        "degree": "MBBS, MD",
+        "specialization": "Pediatrics",
+        "experience_years": 11,
+        "designation": "Senior Pediatrician",
+        "languages": ["English", "Hindi"],
+        "consultation_fee": 700,
+        "availability": "Monday to Friday, 9:00 AM - 1:00 PM"
+      },
+      {
+        "doctor_id": "D004",
+        "name": "Dr. Vikram Joshi",
+        "degree": "MBBS, MD",
+        "specialization": "Dermatology",
+        "experience_years": 7,
+        "designation": "Consultant Dermatologist",
+        "languages": ["English", "Hindi"],
+        "consultation_fee": 650,
+        "availability": "Tuesday to Saturday, 4:00 PM - 7:00 PM"
+      }
+    ]
+  },
+  {
+    "hospital_id": "H003",
+    "hospital_name": "Central City Hospital",
+    "address": {
+      "street": "102 MG Road",
+      "area": "MG Road",
+      "city": "Indore",
+      "state": "Madhya Pradesh",
+      "pincode": "452007",
+      "country": "India"
+    },
+    "phone": "+91-731-4003003",
+    "email": "help@centralcity-mock.example",
+    "departments": [
+      "Endocrinology",
+      "Cardiology",
+      "Orthopedics",
+      "Emergency Medicine"
+    ],
+    "doctors": [
+      {
+        "doctor_id": "D005",
+        "name": "Dr. Sameer Patel",
+        "degree": "MBBS, MD, DM",
+        "specialization": "Endocrinology",
+        "experience_years": 16,
+        "designation": "Senior Endocrinologist",
+        "languages": ["English", "Hindi", "Gujarati"],
+        "consultation_fee": 1000,
+        "availability": "Monday to Friday, 11:00 AM - 3:00 PM"
+      },
+      {
+        "doctor_id": "D006",
+        "name": "Dr. Ananya Rao",
+        "degree": "MBBS, MS",
+        "specialization": "Orthopedics",
+        "experience_years": 12,
+        "designation": "Consultant Orthopedic Surgeon",
+        "languages": ["English", "Hindi"],
+        "consultation_fee": 850,
+        "availability": "Monday, Tuesday, Thursday and Saturday, 2:00 PM - 6:00 PM"
+      }
+    ]
+  },
+  {
+    "hospital_id": "H004",
+    "hospital_name": "Harmony Care Hospital",
+    "address": {
+      "street": "27 Scheme No. 54",
+      "area": "Scheme No. 54",
+      "city": "Indore",
+      "state": "Madhya Pradesh",
+      "pincode": "452011",
+      "country": "India"
+    },
+    "phone": "+91-731-4004004",
+    "email": "info@harmonycare-mock.example",
+    "departments": [
+      "Gynecology",
+      "General Medicine",
+      "ENT",
+      "Psychiatry"
+    ],
+    "doctors": [
+      {
+        "doctor_id": "D007",
+        "name": "Dr. Priya Nair",
+        "degree": "MBBS, MD",
+        "specialization": "Gynecology",
+        "experience_years": 10,
+        "designation": "Consultant Gynecologist",
+        "languages": ["English", "Hindi", "Malayalam"],
+        "consultation_fee": 750,
+        "availability": "Monday to Saturday, 10:00 AM - 1:00 PM"
+      },
+      {
+        "doctor_id": "D008",
+        "name": "Dr. Rahul Verma",
+        "degree": "MBBS, MD, DNB",
+        "specialization": "Psychiatry",
+        "experience_years": 8,
+        "designation": "Consultant Psychiatrist",
+        "languages": ["English", "Hindi"],
+        "consultation_fee": 900,
+        "availability": "Monday to Friday, 5:00 PM - 8:00 PM"
+      }
+    ]
+  },
+  {
+    "hospital_id": "H005",
+    "hospital_name": "Lifeline Advanced Hospital",
+    "address": {
+      "street": "88 Rau Main Road",
+      "area": "Rau",
+      "city": "Indore",
+      "state": "Madhya Pradesh",
+      "pincode": "453331",
+      "country": "India"
+    },
+    "phone": "+91-731-4005005",
+    "email": "contact@lifeline-mock.example",
+    "departments": [
+      "Pulmonology",
+      "Cardiology",
+      "Gastroenterology",
+      "General Surgery"
+    ],
+    "doctors": [
+      {
+        "doctor_id": "D009",
+        "name": "Dr. Karan Malhotra",
+        "degree": "MBBS, MD, DM",
+        "specialization": "Pulmonology",
+        "experience_years": 13,
+        "designation": "Senior Pulmonologist",
+        "languages": ["English", "Hindi"],
+        "consultation_fee": 850,
+        "availability": "Monday to Friday, 9:00 AM - 12:00 PM"
+      },
+      {
+        "doctor_id": "D010",
+        "name": "Dr. Meera Iyer",
+        "degree": "MBBS, MS, DNB",
+        "specialization": "General Surgery",
+        "experience_years": 15,
+        "designation": "Senior General Surgeon",
+        "languages": ["English", "Hindi", "Tamil"],
+        "consultation_fee": 950,
+        "availability": "Tuesday to Saturday, 11:00 AM - 3:00 PM"
+      }
+    ]
+  }
+]
