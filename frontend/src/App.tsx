@@ -19,10 +19,21 @@ import { MyAppointmentsPage } from './pages/MyAppointmentsPage';
 import { ChatHistoryPage } from './pages/ChatHistoryPage';
 import { ProfilePage } from './pages/ProfilePage';
 
+// Doctor Pages
+import { DoctorDashboardPage } from './pages/doctor/DoctorDashboardPage';
+import { DoctorAppointmentsPage } from './pages/doctor/DoctorAppointmentsPage';
+import { DoctorSchedulePage } from './pages/doctor/DoctorSchedulePage';
+import { DoctorPatientsPage } from './pages/doctor/DoctorPatientsPage';
+import { DoctorProfilePage } from './pages/doctor/DoctorProfilePage';
+import { DoctorSessionsPage } from './pages/doctor/DoctorSessionsPage';
+import { DoctorPrescriptionsPage } from './pages/doctor/DoctorPrescriptionsPage';
+import { DoctorMedicalRecordsPage } from './pages/doctor/DoctorMedicalRecordsPage';
+
 // Admin Pages
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminDoctorsPage } from './pages/AdminDoctorsPage';
 import { AdminHospitalsPage } from './pages/AdminHospitalsPage';
+import { AdminDepartmentsPage } from './pages/AdminDepartmentsPage';
 import { AdminSchedulesPage } from './pages/AdminSchedulesPage';
 import { AdminAppointmentsPage } from './pages/AdminAppointmentsPage';
 import { AdminUsersPage } from './pages/AdminUsersPage';
@@ -32,6 +43,20 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const { user, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
   if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+
+const PatientRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isPatient, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
+  if (!user || !isPatient) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+
+const DoctorRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isDoctor, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
+  if (!user || !isDoctor) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
@@ -54,16 +79,27 @@ export const AppContent: React.FC = () => {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
 
-          {/* User Protected Routes */}
-          <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-          <Route path="/my-appointments" element={<ProtectedRoute><MyAppointmentsPage /></ProtectedRoute>} />
-          <Route path="/chat-history" element={<ProtectedRoute><ChatHistoryPage /></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+          {/* Patient Protected Routes */}
+          <Route path="/dashboard" element={<PatientRoute><DashboardPage /></PatientRoute>} />
+          <Route path="/my-appointments" element={<PatientRoute><MyAppointmentsPage /></PatientRoute>} />
+          <Route path="/chat-history" element={<PatientRoute><ChatHistoryPage /></PatientRoute>} />
+          <Route path="/profile" element={<PatientRoute><ProfilePage /></PatientRoute>} />
+
+          {/* Doctor Protected Routes */}
+          <Route path="/doctor/dashboard" element={<DoctorRoute><DoctorDashboardPage /></DoctorRoute>} />
+          <Route path="/doctor/appointments" element={<DoctorRoute><DoctorAppointmentsPage /></DoctorRoute>} />
+          <Route path="/doctor/sessions" element={<DoctorRoute><DoctorSessionsPage /></DoctorRoute>} />
+          <Route path="/doctor/prescriptions" element={<DoctorRoute><DoctorPrescriptionsPage /></DoctorRoute>} />
+          <Route path="/doctor/medical-records" element={<DoctorRoute><DoctorMedicalRecordsPage /></DoctorRoute>} />
+          <Route path="/doctor/schedule" element={<DoctorRoute><DoctorSchedulePage /></DoctorRoute>} />
+          <Route path="/doctor/patients" element={<DoctorRoute><DoctorPatientsPage /></DoctorRoute>} />
+          <Route path="/doctor/profile" element={<DoctorRoute><DoctorProfilePage /></DoctorRoute>} />
 
           {/* Admin Protected Routes */}
           <Route path="/admin" element={<AdminRoute><AdminDashboardPage /></AdminRoute>} />
           <Route path="/admin/doctors" element={<AdminRoute><AdminDoctorsPage /></AdminRoute>} />
           <Route path="/admin/hospitals" element={<AdminRoute><AdminHospitalsPage /></AdminRoute>} />
+          <Route path="/admin/departments" element={<AdminRoute><AdminDepartmentsPage /></AdminRoute>} />
           <Route path="/admin/schedules" element={<AdminRoute><AdminSchedulesPage /></AdminRoute>} />
           <Route path="/admin/appointments" element={<AdminRoute><AdminAppointmentsPage /></AdminRoute>} />
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />

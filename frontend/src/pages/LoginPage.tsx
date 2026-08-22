@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { HeartPulse, Mail, Lock, LogIn, ArrowRight } from 'lucide-react';
+import { HeartPulse, Mail, Lock, LogIn } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -22,7 +22,19 @@ export const LoginPage: React.FC = () => {
     const result = await login(email, password);
     if (result.success) {
       showToast('Logged in successfully!', 'success');
-      navigate('/dashboard');
+      // Fetch authenticated user from localStorage token or AuthContext role if available
+      try {
+        const payload = JSON.parse(atob(localStorage.getItem('hospital_auth_token')?.split('.')[1] || '{}'));
+        if (payload.role === 'admin') {
+          navigate('/admin');
+        } else if (payload.role === 'doctor') {
+          navigate('/doctor/dashboard');
+        } else {
+          navigate('/dashboard');
+        }
+      } catch {
+        navigate('/dashboard');
+      }
     } else {
       setErrorMsg(result.message || 'Login failed');
       showToast(result.message || 'Login failed', 'error');
@@ -38,7 +50,7 @@ export const LoginPage: React.FC = () => {
             <HeartPulse className="w-7 h-7" />
           </div>
           <h2 className="text-2xl font-extrabold text-slate-900">Welcome Back</h2>
-          <p className="text-xs text-slate-500">Sign in to your HealthPulse patient account</p>
+          <p className="text-xs text-slate-500">Sign in to your HealthPulse account (Patient, Doctor, or Admin)</p>
         </div>
 
         {errorMsg && (
@@ -55,7 +67,7 @@ export const LoginPage: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="patient@example.com"
+                placeholder="name@example.com"
                 className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-medical-500 focus:bg-white transition-all"
                 required
               />
@@ -87,12 +99,6 @@ export const LoginPage: React.FC = () => {
             <LogIn className="w-4 h-4" />
           </button>
         </form>
-
-        <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-900 space-y-1">
-          <p className="font-bold">🔑 Admin Demo Login:</p>
-          <p>Email: <code className="font-mono bg-amber-100 px-1 py-0.5 rounded">admin@hospital.com</code></p>
-          <p>Password: <code className="font-mono bg-amber-100 px-1 py-0.5 rounded">admin123</code></p>
-        </div>
 
         <div className="text-center text-xs text-slate-500">
           Don't have an account?{' '}

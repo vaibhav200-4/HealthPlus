@@ -2,8 +2,10 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import auth, doctors, hospitals, schedules, appointments, chat, admin, telegram_webhook
+from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, ai_tools
 from seed_data import seed
+
+from app.database.supabase_client import SupabaseService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hospital_app")
@@ -14,10 +16,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configure CORS explicitly for frontend origin
+# Configure CORS explicitly for configured origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows localhost Vite dev server
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,19 +29,27 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(doctors.router)
 app.include_router(hospitals.router)
+app.include_router(departments.router)
 app.include_router(schedules.router)
 app.include_router(appointments.router)
+app.include_router(sessions.router)
+app.include_router(prescriptions.router)
+app.include_router(medical_records.router)
+app.include_router(reviews.router)
 app.include_router(chat.router)
 app.include_router(telegram_webhook.router)
 app.include_router(admin.router)
+app.include_router(ai_tools.router)
 
-# @app.on_event("startup")
-# def on_startup():
-#     logger.info("Initializing Hospital System Backend...")
-#     try:
-#         seed()
-#     except Exception as e:
-#         logger.warning(f"Seeding warning: {e}")
+@app.on_event("startup")
+def on_startup():
+    logger.info("Initializing Hospital System Backend...")
+    is_active = SupabaseService.is_supabase_active()
+    if settings.ENVIRONMENT.lower() == "production" and not is_active:
+        logger.critical("CRITICAL: Application set to production mode but Supabase database credentials are missing or invalid!")
+        raise RuntimeError("CRITICAL: Production startup failed! Active Supabase database connection is required in production.")
+    elif not is_active:
+        logger.warning("WARNING: Running in DEVELOPMENT mode with in-memory local database fallback.")
 
 @app.get("/health")
 def health_check():

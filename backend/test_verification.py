@@ -15,8 +15,10 @@ from app.api.auth import register_user, login_user
 from app.services.schedule_service import ScheduleService
 from app.api.schedules import get_doctor_slots
 from seed_data import seed
+from test_utils import setup_strict_fallback_listener, assert_no_local_fallback
 
 def run_tests():
+    setup_strict_fallback_listener()
     print("=" * 60)
     print("RUNNING END-TO-END VERIFICATION SEQUENCE")
     print("=" * 60)
@@ -122,6 +124,7 @@ def run_tests():
     print("\n" + "=" * 60)
     print("ALL VERIFICATION STEPS COMPLETED SUCCESSFULLY!")
     print("=" * 60)
+    assert_no_local_fallback()
 
 if __name__ == "__main__":
     run_tests()

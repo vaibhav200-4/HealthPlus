@@ -4,13 +4,27 @@ export interface User {
   email: string;
   phone?: string;
   telegram_id?: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'patient' | 'doctor' | 'staff' | 'admin' | 'super_admin';
+  patient_code?: string;
   created_at?: string;
+}
+
+export interface Department {
+  id: string;
+  hospital_id: string;
+  name: string;
+  description?: string;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Doctor {
   id: string;
+  profile_id?: string;
   hospital_id: string;
+  department_id?: string;
+  department_name?: string;
   name: string;
   degree?: string;
   specialization: string;
@@ -20,6 +34,8 @@ export interface Doctor {
   consultation_fee: number;
   availability?: string;
   image_url?: string;
+  rating?: number;
+  total_reviews?: number;
 }
 
 export interface Hospital {
@@ -46,11 +62,74 @@ export interface Appointment {
   start_time: string;
   end_time: string;
   calendar_event_id?: string;
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  status: 'pending' | 'confirmed' | 'checked_in' | 'in_progress' | 'completed' | 'cancelled' | 'rejected' | 'no_show';
   patient_name: string;
   patient_phone?: string;
   patient_email?: string;
   notes?: string;
+  idempotency_key?: string;
+  created_at?: string;
+}
+
+export interface Session {
+  id: string;
+  appointment_id?: string;
+  doctor_id: str;
+  patient_id: str;
+  patient_code?: string;
+  started_at?: string;
+  ended_at?: string;
+  status: 'in_progress' | 'completed' | 'cancelled';
+  symptoms?: string;
+  diagnosis?: string;
+  doctor_notes?: string;
+  created_at?: string;
+}
+
+export interface PrescriptionItem {
+  id?: string;
+  medicine_name: string;
+  dosage?: string;
+  frequency?: string;
+  duration?: string;
+  instructions?: string;
+}
+
+export interface Prescription {
+  id: string;
+  patient_id: string;
+  patient_code?: string;
+  doctor_id: string;
+  doctor_name?: string;
+  session_id?: string;
+  notes?: string;
+  items: PrescriptionItem[];
+  created_at?: string;
+}
+
+export interface MedicalRecord {
+  id: string;
+  patient_id: string;
+  patient_code?: string;
+  doctor_id?: string;
+  doctor_name?: string;
+  session_id?: string;
+  record_type: 'diagnosis' | 'lab_report' | 'xray' | 'mri' | 'blood_test' | 'discharge_summary' | 'other';
+  title: string;
+  description?: string;
+  file_url?: string;
+  signed_file_url?: string;
+  created_at?: string;
+}
+
+export interface DoctorReview {
+  id: string;
+  patient_id: string;
+  patient_code?: string;
+  doctor_id: string;
+  appointment_id: string;
+  rating: number;
+  review?: string;
   created_at?: string;
 }
 
@@ -58,6 +137,9 @@ export interface TimeSlot {
   start_time: string;
   end_time: string;
   available: boolean;
+  capacity?: number;
+  booked?: number;
+  blocked?: boolean;
 }
 
 export interface ChatMessage {

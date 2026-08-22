@@ -11,6 +11,8 @@ interface AuthContextType {
   linkTelegram: (telegram_id: string) => Promise<boolean>;
   logout: () => void;
   isAdmin: boolean;
+  isDoctor: boolean;
+  isPatient: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -96,7 +98,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         register,
         linkTelegram,
         logout,
-        isAdmin: user?.role === 'admin'
+        isAdmin: user?.role === 'admin',
+        isDoctor: user?.role === 'doctor',
+        isPatient: user?.role === 'user' || user?.role === 'patient'
       }}
     >
       {children}

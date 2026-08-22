@@ -18,6 +18,7 @@ export const AdminSidebar: React.FC = () => {
     { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin/doctors', label: 'Doctors', icon: Stethoscope },
     { path: '/admin/hospitals', label: 'Hospitals', icon: Building2 },
+    { path: '/admin/departments', label: 'Departments', icon: Building2 },
     { path: '/admin/schedules', label: 'Schedules', icon: CalendarClock },
     { path: '/admin/appointments', label: 'Appointments', icon: ClipboardList },
     { path: '/admin/users', label: 'Users', icon: Users },

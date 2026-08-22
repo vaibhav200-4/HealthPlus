@@ -19,6 +19,7 @@ class UserProfile(BaseModel):
     phone: Optional[str] = None
     telegram_id: Optional[str] = None
     role: str = "user"
+    patient_code: Optional[str] = None
     created_at: Optional[str] = None
 
 class LinkTelegramRequest(BaseModel):

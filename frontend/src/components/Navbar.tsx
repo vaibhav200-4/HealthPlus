@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
+import { DoctorNavbar } from './DoctorNavbar';
+import { AdminNavbar } from './AdminNavbar';
 import { 
   HeartPulse, 
   Calendar, 
   User as UserIcon, 
   Bot, 
   LogOut, 
-  ShieldAlert, 
   Menu, 
   X,
   Stethoscope,
@@ -16,11 +17,20 @@ import {
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isDoctor, isAdmin } = useAuth();
   const { setIsOpen } = useChat();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Render role-specific navigation bars
+  if (isDoctor) {
+    return <DoctorNavbar />;
+  }
+
+  if (isAdmin) {
+    return <AdminNavbar />;
+  }
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -91,16 +101,6 @@ export const Navbar: React.FC = () => {
                 Chat History
               </Link>
             </>
-          )}
-
-          {isAdmin && (
-            <Link
-              to="/admin"
-              className="px-3.5 py-2 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 font-semibold flex items-center gap-1.5 transition-colors border border-amber-200/60"
-            >
-              <ShieldAlert className="w-4 h-4 text-amber-600" />
-              Admin Portal
-            </Link>
           )}
         </nav>
 
@@ -220,16 +220,6 @@ export const Navbar: React.FC = () => {
                 Profile & Settings
               </Link>
             </>
-          )}
-
-          {isAdmin && (
-            <Link
-              to="/admin"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block px-3 py-2 rounded-lg text-amber-800 bg-amber-50 font-medium"
-            >
-              Admin Dashboard
-            </Link>
           )}
 
           <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">

@@ -18,7 +18,7 @@ CREATE TABLE public.profiles (
     password_hash TEXT,
     phone TEXT,
     telegram_id TEXT UNIQUE,
-    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('patient', 'user', 'doctor', 'admin')),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -38,9 +38,10 @@ CREATE TABLE public.hospitals (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Doctors Table
+-- 3. Doctors Table (Linked to profiles.id via profile_id UNIQUE)
 CREATE TABLE public.doctors (
     id TEXT PRIMARY KEY,
+    profile_id UUID UNIQUE REFERENCES public.profiles(id) ON DELETE SET NULL,
     hospital_id TEXT REFERENCES public.hospitals(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     degree TEXT,
