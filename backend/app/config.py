@@ -29,5 +29,6 @@ class Settings:
     ALLOWED_ORIGINS: list = [
         o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000").split(",") if o.strip()
     ]
+    ALLOWED_ORIGIN_REGEX: str = os.getenv("ALLOWED_ORIGIN_REGEX", r"https://.*\.vercel\.app")
 
 settings = Settings()
