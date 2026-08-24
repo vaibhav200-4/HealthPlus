@@ -281,3 +281,6 @@ def verify_n8n_tool_context(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid n8n AI context token"
         )
+
+verify_n8n_context_token = verify_n8n_tool_context
+

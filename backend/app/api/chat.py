@@ -30,11 +30,13 @@ async def send_web_chat_message(
     SupabaseService.insert_record("chat_messages", user_msg_record)
 
     # 2. Forward to n8n webhook
-    ai_response = await N8nService.send_web_chat(
+    ai_res = await N8nService.send_web_chat(
         user_id=user_id,
         message=data.message,
         session_id=session_id
     )
+    ai_response_text = ai_res.get("text", "")
+    qr_url = ai_res.get("qr_url")
 
     # 3. Explicitly save assistant response to chat_messages table in Supabase
     assistant_msg_record = {
@@ -43,15 +45,16 @@ async def send_web_chat_message(
         "channel": "web",
         "session_id": session_id,
         "role": "assistant",
-        "message": ai_response,
+        "message": ai_response_text,
         "telegram_id": current_user.get("telegram_id")
     }
     SupabaseService.insert_record("chat_messages", assistant_msg_record)
 
     return ChatSendResponse(
-        message=ai_response,
+        message=ai_response_text,
         session_id=session_id,
-        user_id=user_id
+        user_id=user_id,
+        qr_url=qr_url
     )
 
 @router.get("/history", response_model=List[ChatMessageResponse])

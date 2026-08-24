@@ -9,11 +9,14 @@ logger = logging.getLogger("hospital_app.n8n")
 
 class N8nService:
     @staticmethod
-    async def send_web_chat(user_id: str, message: str, session_id: str, channel: str = "web") -> str:
+    async def send_web_chat(user_id: str, message: str, session_id: str, channel: str = "web") -> Dict[str, Any]:
         webhook_url = settings.N8N_WEBHOOK_URL
         if not webhook_url:
             logger.warning("N8N_WEBHOOK_URL is not set.")
-            return "n8n Webhook URL is not configured. Please set N8N_WEBHOOK_URL in environment variables."
+            return {
+                "text": "n8n Webhook URL is not configured. Please set N8N_WEBHOOK_URL in environment variables.",
+                "qr_url": None
+            }
 
         # Fetch user role & hospital context
         user_role = "patient"
@@ -62,38 +65,58 @@ class N8nService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=150.0) as client:
                 response = await client.post(webhook_url, json=payload, headers=headers)
                 logger.info(f"n8n response status: {response.status_code}")
 
                 if response.status_code == 200:
                     try:
                         res_json = response.json()
+                        text_res = ""
+                        qr_url_res = None
                         if isinstance(res_json, dict):
-                            return (
+                            text_res = (
                                 res_json.get("output") or 
                                 res_json.get("response") or 
                                 res_json.get("text") or 
                                 res_json.get("message") or 
                                 str(res_json)
                             )
+                            qr_url_res = (
+                                res_json.get("qr_url") or 
+                                res_json.get("qrCodeUrl") or 
+                                res_json.get("qr_code_url") or 
+                                res_json.get("qrCode") or 
+                                res_json.get("qr")
+                            )
                         elif isinstance(res_json, list) and len(res_json) > 0:
                             first_item = res_json[0]
                             if isinstance(first_item, dict):
-                                return (
+                                text_res = (
                                     first_item.get("output") or 
                                     first_item.get("response") or 
                                     first_item.get("text") or 
                                     first_item.get("message") or 
                                     str(first_item)
                                 )
-                            return str(first_item)
-                        return response.text
+                                qr_url_res = (
+                                    first_item.get("qr_url") or 
+                                    first_item.get("qrCodeUrl") or 
+                                    first_item.get("qr_code_url") or 
+                                    first_item.get("qrCode") or 
+                                    first_item.get("qr")
+                                )
+                            else:
+                                text_res = str(first_item)
+                        else:
+                            text_res = response.text
+
+                        return {"text": text_res, "qr_url": qr_url_res}
                     except Exception:
-                        return response.text
+                        return {"text": response.text, "qr_url": None}
                 else:
                     logger.error(f"n8n Webhook returned status code {response.status_code}: {response.text}")
-                    return f"Received error from AI assistant ({response.status_code})."
+                    return {"text": f"Received error from AI assistant ({response.status_code}).", "qr_url": None}
         except Exception as e:
             logger.error(f"Error calling n8n webhook: {e}")
-            return "Unable to connect to AI assistant at the moment. Please try again later."
+            return {"text": "Unable to connect to AI assistant at the moment. Please try again later.", "qr_url": None}

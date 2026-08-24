@@ -74,8 +74,8 @@ export interface Appointment {
 export interface Session {
   id: string;
   appointment_id?: string;
-  doctor_id: str;
-  patient_id: str;
+  doctor_id: string;
+  patient_id: string;
   patient_code?: string;
   started_at?: string;
   ended_at?: string;
@@ -168,3 +168,18 @@ export interface VectorSearchResult {
   availability?: string;
   text?: string;
 }
+
+/**
+ * UI Showcase / Mock Payment Types (Frontend Only)
+ * Used purely for demonstration in appointment booking flow.
+ */
+export interface MockPaymentCard {
+  id: string;
+  type: 'visa' | 'mastercard' | 'amex' | 'healthpulse';
+  cardNumberLast4: string;
+  holderName: string;
+  expiryMonth: string;
+  expiryYear: string;
+  isDefault?: boolean;
+}
+

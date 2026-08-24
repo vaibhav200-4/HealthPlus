@@ -52,6 +52,14 @@ def ai_book_appointment(
     # Server-side user_id & hospital_id injection from verified context (LLM cannot forge identity)
     user_id = context["user_id"]
     
+    # Reject with 403 if token's user_id does not match request body's user_id
+    body_user_id = payload.get("user_id")
+    if body_user_id and str(body_user_id) != str(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Token user_id does not match request body user_id"
+        )
+    
     # Resolve patient details
     profiles = SupabaseService.get_records("profiles", {"id": user_id})
     p_name = profiles[0].get("name", "Patient") if profiles else "Patient"

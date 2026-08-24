@@ -26,3 +26,5 @@ class ChatSendResponse(BaseModel):
     message: str
     session_id: str
     user_id: str
+    qr_url: Optional[str] = None
+
