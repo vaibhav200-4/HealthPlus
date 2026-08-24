@@ -22,7 +22,7 @@ Create a `.env` file at the project root using `.env.example`:
 
 ```env
 # n8n AI Agent Production Webhook URL
-N8N_WEBHOOK_URL=https://vaibhavsoni.app.n8n.cloud/webhook/778537f9-6282-47e8-9f08-09f870e4cbd0
+N8N_WEBHOOK_URL=
 
 # Supabase Credentials
 SUPABASE_URL=https://your-supabase-project.supabase.co
@@ -30,7 +30,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 
 # Pinecone Vector Search
-PINECONE_API_KEY=pcsk_3JXRKU_TPRXpPBuF3pzyhjGhdcE1h9XxUShLTWJHJK7uxSXTL6JRtpapAuxshVesy5PddF
+PINECONE_API_KEY=
 PINECONE_INDEX_NAME=hospital-doctors
 
 # Google Gemini API Key
