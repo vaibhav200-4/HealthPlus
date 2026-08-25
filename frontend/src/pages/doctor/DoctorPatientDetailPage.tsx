@@ -48,17 +48,51 @@ export const DoctorPatientDetailPage: React.FC = () => {
   const fetchPatientData = async () => {
     setLoading(true);
     try {
-      const [profileRes, recordsRes] = await Promise.all([
-        api.get(`/doctors/patients/${patientId}/profile`).catch(() =>
-          api.get(`/doctors/me/patients/${patientId}`).catch(() => null)
-        ),
-        api.get(`/medical-records/patient/${patientId}`).catch(() => ({ data: [] }))
-      ]);
+      const profileRes = await api.get(`/doctors/patients/${patientId}/profile`).catch(() =>
+        api.get(`/doctors/me/patients/${patientId}`).catch(() => null)
+      );
 
-      if (profileRes && profileRes.data) {
-        setPatientProfile(profileRes.data);
+      const pData = profileRes?.data;
+      if (pData) {
+        setPatientProfile(pData);
       }
-      setRecords(recordsRes.data || []);
+
+      // Collect all possible patient identifier aliases (patient_id, profile_id, URL parameter)
+      const targetIds = Array.from(
+        new Set(
+          [patientId, pData?.patient_id, pData?.profile_id].filter(
+            (id): id is string => Boolean(id) && typeof id === 'string'
+          )
+        )
+      );
+
+      const recordPromises = targetIds.map((id) =>
+        api.get(`/medical-records/patient/${id}`).catch(() => ({ data: [] }))
+      );
+
+      const recordsResponses = await Promise.all(recordPromises);
+      const allRecords: MedicalRecord[] = [];
+      const seenIds = new Set<string>();
+
+      recordsResponses.forEach((res) => {
+        if (Array.isArray(res?.data)) {
+          res.data.forEach((r: MedicalRecord) => {
+            if (r && r.id && !seenIds.has(r.id)) {
+              seenIds.add(r.id);
+              allRecords.push(r);
+            }
+          });
+        }
+      });
+
+      // Sort by created_at descending
+      allRecords.sort((a, b) => {
+        const dA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dB - dA;
+      });
+
+      setRecords(allRecords);
     } catch (err) {
       console.error('Failed to load patient detail data:', err);
     } finally {
@@ -79,7 +113,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('patient_identifier', patientId || '');
+      formData.append('patient_identifier', patientProfile?.patient_id || patientId || '');
       formData.append('uploaded_by', 'doctor');
       formData.append('title', title);
       formData.append('record_type', recordType);
@@ -98,8 +132,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
       setRecordType('diagnosis');
       
       // Refresh medical records list
-      const recordsRes = await api.get(`/medical-records/patient/${patientId}`);
-      setRecords(recordsRes.data || []);
+      await fetchPatientData();
     } catch (err: any) {
       setUploadError(err.response?.data?.detail || 'Failed to upload medical record');
     } finally {

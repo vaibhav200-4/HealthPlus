@@ -203,17 +203,26 @@ async def upload_medical_record(
 
 @router.get("/patient/{patient_id}", response_model=List[MedicalRecordBase])
 def get_patient_medical_records(patient_id: str, identity: dict = Depends(get_identity_context)):
-    resolved_id = patient_id
+    candidate_ids = {patient_id}
     p_rec = SupabaseService.get_record_by_id("patients", patient_id)
     if not p_rec:
         pts = SupabaseService.get_records("patients", {"profile_id": patient_id})
         if pts:
             p_rec = pts[0]
-            resolved_id = p_rec["id"]
-        else:
-            resolved_id = patient_id
+            candidate_ids.add(p_rec["id"])
+            if p_rec.get("profile_id"):
+                candidate_ids.add(p_rec["profile_id"])
+    else:
+        if p_rec.get("profile_id"):
+            candidate_ids.add(p_rec["profile_id"])
 
-    records = SupabaseService.get_records("medical_records", {"patient_id": resolved_id})
+    records_dict = {}
+    for cid in candidate_ids:
+        recs = SupabaseService.get_records("medical_records", {"patient_id": cid})
+        for r in recs:
+            records_dict[r["id"]] = r
+
+    records = list(records_dict.values())
 
     def get_sort_key(r):
         return r.get("created_at") or ""
