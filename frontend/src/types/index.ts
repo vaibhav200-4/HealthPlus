@@ -119,6 +119,9 @@ export interface MedicalRecord {
   description?: string;
   file_url?: string;
   signed_file_url?: string;
+  uploaded_by?: 'patient' | 'doctor' | 'admin';
+  file_type?: string;
+  file_size_bytes?: number;
   created_at?: string;
 }
 
@@ -169,10 +172,6 @@ export interface VectorSearchResult {
   text?: string;
 }
 
-/**
- * UI Showcase / Mock Payment Types (Frontend Only)
- * Used purely for demonstration in appointment booking flow.
- */
 export interface MockPaymentCard {
   id: string;
   type: 'visa' | 'mastercard' | 'amex' | 'healthpulse';
@@ -182,4 +181,3 @@ export interface MockPaymentCard {
   expiryYear: string;
   isDefault?: boolean;
 }
-

@@ -33,14 +33,18 @@ def get_my_doctor_patients(doctor_info: dict = Depends(get_doctor_user)):
         uid = app.get("user_id")
         if uid and uid not in seen_users:
             patient_code = None
+            p_id = None
             try:
                 pts = SupabaseService.get_records("patients", {"profile_id": uid})
                 if pts:
                     patient_code = pts[0].get("patient_code")
+                    p_id = pts[0].get("id")
             except Exception:
                 pass
 
             seen_users[uid] = {
+                "patient_id": p_id or uid,
+                "user_id": uid,
                 "patient_code": patient_code or f"PT-REF{str(uid)[:6]}",
                 "patient_name": app.get("patient_name"),
                 "patient_email": app.get("patient_email"),
@@ -49,6 +53,63 @@ def get_my_doctor_patients(doctor_info: dict = Depends(get_doctor_user)):
                 "total_appointments": len([a for a in appointments if a.get("user_id") == uid])
             }
     return list(seen_users.values())
+
+@router.get("/patients/{patient_id}/profile")
+@router.get("/me/patients/{patient_id}")
+def get_doctor_patient_profile(patient_id: str, doctor_info: dict = Depends(get_doctor_user)):
+    doc_id = doctor_info["doctor"]["id"]
+    
+    patient_rec = SupabaseService.get_record_by_id("patients", patient_id)
+    profile_id = None
+    real_patient_id = patient_id
+
+    if patient_rec:
+        profile_id = patient_rec.get("profile_id")
+        real_patient_id = patient_rec.get("id")
+    else:
+        pts = SupabaseService.get_records("patients", {"profile_id": patient_id})
+        if pts:
+            patient_rec = pts[0]
+            profile_id = patient_id
+            real_patient_id = patient_rec["id"]
+        else:
+            profile_id = patient_id
+
+    profile_rec = SupabaseService.get_record_by_id("profiles", profile_id) if profile_id else None
+
+    all_doc_appointments = SupabaseService.get_records("appointments", {"doctor_id": doc_id})
+    patient_appointments = [
+        a for a in all_doc_appointments 
+        if (profile_id and a.get("user_id") == profile_id) or (a.get("user_id") == patient_id)
+    ]
+
+    p_name = profile_rec.get("name") if profile_rec else None
+    p_email = profile_rec.get("email") if profile_rec else None
+    p_phone = profile_rec.get("phone") if profile_rec else None
+
+    if patient_appointments:
+        if not p_name:
+            p_name = patient_appointments[0].get("patient_name")
+        if not p_email:
+            p_email = patient_appointments[0].get("patient_email")
+        if not p_phone:
+            p_phone = patient_appointments[0].get("patient_phone")
+
+    return {
+        "patient_id": real_patient_id,
+        "profile_id": profile_id or real_patient_id,
+        "patient_code": patient_rec.get("patient_code") if patient_rec else f"PT-REF{str(real_patient_id)[:6]}",
+        "name": p_name or "Patient",
+        "email": p_email or "No email provided",
+        "phone": p_phone or "No phone provided",
+        "gender": patient_rec.get("gender") if patient_rec else None,
+        "blood_group": patient_rec.get("blood_group") if patient_rec else None,
+        "date_of_birth": patient_rec.get("date_of_birth") if patient_rec else None,
+        "address": patient_rec.get("address") if patient_rec else None,
+        "emergency_contact": patient_rec.get("emergency_contact") if patient_rec else None,
+        "consultation_count": len(patient_appointments),
+        "appointments": patient_appointments
+    }
 
 @router.get("/me/stats")
 def get_my_doctor_stats(doctor_info: dict = Depends(get_doctor_user)):
@@ -88,7 +149,6 @@ def get_all_doctors(
     hospitals = {h["id"]: h for h in SupabaseService.get_records("hospitals")}
     departments = {d["id"]: d for d in SupabaseService.get_records("departments")}
 
-    # Enrich doctor records with department_name if available and sanitize None fields
     for d in doctors:
         dept_id = d.get("department_id")
         if dept_id and dept_id in departments:
@@ -147,15 +207,11 @@ def get_doctor_by_id(doctor_id: str):
 
 @router.post("/search")
 def search_doctors_vector(req: DoctorSearchRequest):
-    """
-    Semantic vector search combined with multi-attribute filtering (department, specialization, hospital, city, fee, rating).
-    """
     if req.query:
         vector_results = PineconeService.search_doctors(query=req.query, top_k=req.limit or 10)
     else:
         vector_results = []
 
-    # If vector results returned matches, apply post-filtering if extra criteria present
     if vector_results:
         filtered = vector_results
         if req.department_id:
@@ -174,7 +230,6 @@ def search_doctors_vector(req: DoctorSearchRequest):
             filtered = [r for r in filtered if float(r.get("consultation_fee", 0)) <= req.max_fee]
         return {"query": req.query, "results": filtered}
 
-    # Fallback to database structured query
     db_docs = get_all_doctors(
         specialization=req.specialization,
         hospital_id=req.hospital_id,

@@ -24,10 +24,10 @@ import { DoctorDashboardPage } from './pages/doctor/DoctorDashboardPage';
 import { DoctorAppointmentsPage } from './pages/doctor/DoctorAppointmentsPage';
 import { DoctorSchedulePage } from './pages/doctor/DoctorSchedulePage';
 import { DoctorPatientsPage } from './pages/doctor/DoctorPatientsPage';
+import { DoctorPatientDetailPage } from './pages/doctor/DoctorPatientDetailPage';
 import { DoctorProfilePage } from './pages/doctor/DoctorProfilePage';
 import { DoctorSessionsPage } from './pages/doctor/DoctorSessionsPage';
 import { DoctorPrescriptionsPage } from './pages/doctor/DoctorPrescriptionsPage';
-import { DoctorMedicalRecordsPage } from './pages/doctor/DoctorMedicalRecordsPage';
 
 // Admin Pages
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
@@ -90,9 +90,10 @@ export const AppContent: React.FC = () => {
           <Route path="/doctor/appointments" element={<DoctorRoute><DoctorAppointmentsPage /></DoctorRoute>} />
           <Route path="/doctor/sessions" element={<DoctorRoute><DoctorSessionsPage /></DoctorRoute>} />
           <Route path="/doctor/prescriptions" element={<DoctorRoute><DoctorPrescriptionsPage /></DoctorRoute>} />
-          <Route path="/doctor/medical-records" element={<DoctorRoute><DoctorMedicalRecordsPage /></DoctorRoute>} />
+          <Route path="/doctor/medical-records" element={<Navigate to="/doctor/patients" replace />} />
           <Route path="/doctor/schedule" element={<DoctorRoute><DoctorSchedulePage /></DoctorRoute>} />
           <Route path="/doctor/patients" element={<DoctorRoute><DoctorPatientsPage /></DoctorRoute>} />
+          <Route path="/doctor/patients/:patientId" element={<DoctorRoute><DoctorPatientDetailPage /></DoctorRoute>} />
           <Route path="/doctor/profile" element={<DoctorRoute><DoctorProfilePage /></DoctorRoute>} />
 
           {/* Admin Protected Routes */}

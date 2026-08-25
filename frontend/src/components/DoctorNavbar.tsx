@@ -10,7 +10,8 @@ import {
   LogOut, 
   Menu, 
   X,
-  LayoutDashboard
+  LayoutDashboard,
+  FileText
 } from 'lucide-react';
 
 export const DoctorNavbar: React.FC = () => {
@@ -82,16 +83,6 @@ export const DoctorNavbar: React.FC = () => {
           </Link>
 
           <Link
-            to="/doctor/medical-records"
-            className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
-              isActive('/doctor/medical-records') ? 'bg-tealmed-50 text-tealmed-700 font-semibold' : 'hover:text-tealmed-600 hover:bg-slate-50'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Records
-          </Link>
-
-          <Link
             to="/doctor/schedule"
             className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
               isActive('/doctor/schedule') ? 'bg-tealmed-50 text-tealmed-700 font-semibold' : 'hover:text-tealmed-600 hover:bg-slate-50'
@@ -104,11 +95,11 @@ export const DoctorNavbar: React.FC = () => {
           <Link
             to="/doctor/patients"
             className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
-              isActive('/doctor/patients') ? 'bg-tealmed-50 text-tealmed-700 font-semibold' : 'hover:text-tealmed-600 hover:bg-slate-50'
+              isActive('/doctor/patients') || location.pathname.startsWith('/doctor/patients/') ? 'bg-tealmed-50 text-tealmed-700 font-semibold' : 'hover:text-tealmed-600 hover:bg-slate-50'
             }`}
           >
             <Users className="w-4 h-4" />
-            Patients
+            Patients & Records
           </Link>
 
           <Link
@@ -184,7 +175,7 @@ export const DoctorNavbar: React.FC = () => {
             onClick={() => setMobileMenuOpen(false)}
             className="block px-3 py-2 rounded-lg text-slate-700 font-medium hover:bg-slate-50"
           >
-            Patients
+            Patients & Records
           </Link>
           <Link
             to="/doctor/profile"
