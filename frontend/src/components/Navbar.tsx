@@ -91,15 +91,6 @@ export const Navbar: React.FC = () => {
                 <Calendar className="w-4 h-4" />
                 Appointments
               </Link>
-              <Link
-                to="/chat-history"
-                className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
-                  isActive('/chat-history') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
-                }`}
-              >
-                <MessageSquare className="w-4 h-4" />
-                Chat History
-              </Link>
             </>
           )}
         </nav>
@@ -111,7 +102,7 @@ export const Navbar: React.FC = () => {
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-tealmed-500 to-medical-500 text-white font-medium text-sm shadow-md shadow-tealmed-500/20 hover:opacity-95 transition-all hover:scale-[1.02]"
           >
             <Bot className="w-4 h-4 animate-bounce" />
-            AI Assistant
+            AI Health Assistant
           </button>
 
           {user ? (
@@ -204,13 +195,6 @@ export const Navbar: React.FC = () => {
                 className="block px-3 py-2 rounded-lg text-slate-700 font-medium hover:bg-slate-50"
               >
                 My Appointments
-              </Link>
-              <Link
-                to="/chat-history"
-                onClick={() => setMobileMenuOpen(false)}
-                className="block px-3 py-2 rounded-lg text-slate-700 font-medium hover:bg-slate-50"
-              >
-                Chat History
               </Link>
               <Link
                 to="/profile"

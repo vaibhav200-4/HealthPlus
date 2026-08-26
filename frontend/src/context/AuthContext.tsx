@@ -9,6 +9,14 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
   register: (name: string, email: string, password: string, phone?: string) => Promise<{ success: boolean; message?: string }>;
   linkTelegram: (telegram_id: string) => Promise<boolean>;
+  updateProfile: (data: {
+    phone?: string;
+    gender?: string;
+    blood_group?: string;
+    date_of_birth?: string;
+    address?: string;
+    emergency_contact?: string;
+  }) => Promise<boolean>;
   logout: () => void;
   isAdmin: boolean;
   isDoctor: boolean;
@@ -82,6 +90,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const updateProfile = async (data: {
+    phone?: string;
+    gender?: string;
+    blood_group?: string;
+    date_of_birth?: string;
+    address?: string;
+    emergency_contact?: string;
+  }) => {
+    try {
+      const res = await api.put('/auth/patient-profile', data);
+      setUser(res.data);
+      return true;
+    } catch (err) {
+      console.error('Failed to update patient profile:', err);
+      return false;
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('hospital_auth_token');
     setToken(null);
@@ -97,6 +123,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         login,
         register,
         linkTelegram,
+        updateProfile,
         logout,
         isAdmin: user?.role === 'admin',
         isDoctor: user?.role === 'doctor',

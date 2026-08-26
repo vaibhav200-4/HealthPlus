@@ -16,15 +16,44 @@ import {
   ShieldCheck,
   FileUp,
   AlertCircle,
-  X
+  X,
+  Edit3,
+  Save,
+  Calendar,
+  Heart,
+  Activity,
+  MapPin,
+  AlertTriangle
 } from 'lucide-react';
 
 export const ProfilePage: React.FC = () => {
-  const { user, linkTelegram } = useAuth();
+  const { user, linkTelegram, updateProfile } = useAuth();
   const { showToast } = useToast();
 
   const [telegramId, setTelegramId] = useState(user?.telegram_id || '');
   const [saving, setSaving] = useState(false);
+
+  // Health Information Editing State
+  const [isEditingHealthInfo, setIsEditingHealthInfo] = useState(false);
+  const [dobInput, setDobInput] = useState(user?.date_of_birth || '');
+  const [genderInput, setGenderInput] = useState(user?.gender || '');
+  const [bloodGroupInput, setBloodGroupInput] = useState(user?.blood_group || '');
+  const [phoneInput, setPhoneInput] = useState(user?.phone || '');
+  const [addressInput, setAddressInput] = useState(user?.address || '');
+  const [emergencyContactInput, setEmergencyContactInput] = useState(user?.emergency_contact || '');
+  const [savingHealthInfo, setSavingHealthInfo] = useState(false);
+
+  // Sync inputs if user changes externally
+  useEffect(() => {
+    if (user) {
+      setDobInput(user.date_of_birth || '');
+      setGenderInput(user.gender || '');
+      setBloodGroupInput(user.blood_group || '');
+      setPhoneInput(user.phone || '');
+      setAddressInput(user.address || '');
+      setEmergencyContactInput(user.emergency_contact || '');
+    }
+  }, [user]);
 
   // Medical History State
   const [records, setRecords] = useState<MedicalRecord[]>([]);
@@ -53,6 +82,39 @@ export const ProfilePage: React.FC = () => {
     } finally {
       setLoadingRecords(false);
     }
+  };
+
+  const handleSaveHealthInfo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingHealthInfo(true);
+    const success = await updateProfile({
+      date_of_birth: dobInput,
+      gender: genderInput,
+      blood_group: bloodGroupInput,
+      phone: phoneInput,
+      address: addressInput,
+      emergency_contact: emergencyContactInput
+    });
+
+    if (success) {
+      showToast('Personal & health information updated successfully!', 'success');
+      setIsEditingHealthInfo(false);
+    } else {
+      showToast('Failed to update personal information', 'error');
+    }
+    setSavingHealthInfo(false);
+  };
+
+  const handleCancelHealthInfo = () => {
+    if (user) {
+      setDobInput(user.date_of_birth || '');
+      setGenderInput(user.gender || '');
+      setBloodGroupInput(user.blood_group || '');
+      setPhoneInput(user.phone || '');
+      setAddressInput(user.address || '');
+      setEmergencyContactInput(user.emergency_contact || '');
+    }
+    setIsEditingHealthInfo(false);
   };
 
   const handleSaveTelegram = async (e: React.FormEvent) => {
@@ -110,9 +172,9 @@ export const ProfilePage: React.FC = () => {
     <div className="max-w-4xl mx-auto space-y-8 pb-16">
       {/* Header */}
       <div className="bg-gradient-to-r from-medical-900 to-tealmed-800 rounded-3xl p-8 text-white shadow-xl space-y-2">
-        <h1 className="text-3xl font-extrabold tracking-tight">Patient Profile & Identity</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight">Patient Profile & Health Details</h1>
         <p className="text-xs sm:text-sm text-slate-300">
-          Manage your identity details, Telegram integration, and medical history.
+          Manage your personal health information, Telegram integration, and medical records.
         </p>
       </div>
 
@@ -132,11 +194,15 @@ export const ProfilePage: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Account Identity Details</h3>
+          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Account Information</h3>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-slate-400 font-medium">Internal User ID (UUID)</span>
+              <span className="text-slate-400 font-medium">Patient Code</span>
+              <p className="font-mono text-medical-700 font-bold">{user?.patient_code || 'PT-PENDING'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-slate-400 font-medium">Patient ID</span>
               <p className="font-mono text-slate-800 font-bold break-all">{user?.id}</p>
             </div>
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
@@ -145,15 +211,170 @@ export const ProfilePage: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Telegram Mapping Section */}
-        <form onSubmit={handleSaveTelegram} className="pt-4 border-t border-slate-100 space-y-3">
+      {/* Personal & Health Information Section */}
+      <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
+              <Activity className="w-5 h-5 text-medical-600" /> Personal & Health Information
+            </h3>
+            <p className="text-xs text-slate-500">
+              Keep your health profile updated for accurate doctor consultations.
+            </p>
+          </div>
+
+          {!isEditingHealthInfo && (
+            <button
+              onClick={() => setIsEditingHealthInfo(true)}
+              className="px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white font-bold text-xs rounded-xl shadow flex items-center gap-2 transition-all self-start sm:self-auto"
+            >
+              <Edit3 className="w-4 h-4" /> Edit Information
+            </button>
+          )}
+        </div>
+
+        {isEditingHealthInfo ? (
+          <form onSubmit={handleSaveHealthInfo} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Date of Birth</label>
+                <input
+                  type="date"
+                  value={dobInput}
+                  onChange={(e) => setDobInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-medical-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Gender</label>
+                <select
+                  value={genderInput}
+                  onChange={(e) => setGenderInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-medical-500 outline-none"
+                >
+                  <option value="">Select Gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                  <option value="Prefer not to say">Prefer not to say</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Blood Group</label>
+                <select
+                  value={bloodGroupInput}
+                  onChange={(e) => setBloodGroupInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-medical-500 outline-none"
+                >
+                  <option value="">Select Blood Group</option>
+                  <option value="A+">A+</option>
+                  <option value="A-">A-</option>
+                  <option value="B+">B+</option>
+                  <option value="B-">B-</option>
+                  <option value="AB+">AB+</option>
+                  <option value="AB-">AB-</option>
+                  <option value="O+">O+</option>
+                  <option value="O-">O-</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={phoneInput}
+                  onChange={(e) => setPhoneInput(e.target.value)}
+                  placeholder="e.g. +91 98765 43210"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-medical-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                  placeholder="e.g. Indore, Madhya Pradesh"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-medical-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Emergency Contact</label>
+                <input
+                  type="text"
+                  value={emergencyContactInput}
+                  onChange={(e) => setEmergencyContactInput(e.target.value)}
+                  placeholder="e.g. Spouse (+91 9876543210)"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-medical-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleCancelHealthInfo}
+                className="px-4 py-2 rounded-xl text-slate-600 font-bold text-xs hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingHealthInfo}
+                className="px-5 py-2 bg-medical-600 hover:bg-medical-700 text-white font-bold text-xs rounded-xl shadow flex items-center gap-1.5 transition-all disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                {savingHealthInfo ? 'Saving Changes...' : 'Save Changes'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-slate-400 font-medium">Date of Birth</span>
+              <p className="font-bold text-slate-800">{user?.date_of_birth || 'Not specified'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-slate-400 font-medium">Gender</span>
+              <p className="font-bold text-slate-800">{user?.gender || 'Not specified'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-slate-400 font-medium">Blood Group</span>
+              <p className="font-bold text-rose-600">{user?.blood_group || 'Not specified'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-slate-400 font-medium">Phone Number</span>
+              <p className="font-bold text-slate-800">{user?.phone || 'Not specified'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-slate-400 font-medium">Address</span>
+              <p className="font-bold text-slate-800">{user?.address || 'Not specified'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-slate-400 font-medium">Emergency Contact</span>
+              <p className="font-bold text-slate-800">{user?.emergency_contact || 'Not specified'}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Account Connections / Telegram Section */}
+      <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+        <form onSubmit={handleSaveTelegram} className="space-y-3">
           <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
             <Smartphone className="w-4 h-4 text-sky-500" />
-            Link Telegram Identity
+            Telegram Account Connection
           </h3>
           <p className="text-xs text-slate-500 leading-relaxed">
-            Connecting your Telegram User ID associates Telegram bot messages with this primary application user account.
+            Connecting your Telegram User ID associates Telegram bot consultations with your patient record.
           </p>
 
           <div className="flex gap-2 max-w-md">
@@ -180,7 +401,7 @@ export const ProfilePage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
             <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-emerald-600" /> My Medical History & Records
+              <FileText className="w-5 h-5 text-emerald-600" /> Medical Documents & Health Records
             </h3>
             <p className="text-xs text-slate-500">
               Access reports uploaded by your doctors or upload your own lab documents.

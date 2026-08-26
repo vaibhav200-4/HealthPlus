@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { AdminSidebar } from '../components/AdminSidebar';
 import { Doctor } from '../types';
+import { getDoctorImage } from '../utils/doctorImages';
 import { Stethoscope, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
 
 export const AdminDoctorsPage: React.FC = () => {
@@ -86,7 +87,7 @@ export const AdminDoctorsPage: React.FC = () => {
       languages: ['English', 'Hindi'],
       consultation_fee: fee,
       availability: 'Monday to Saturday, 10:00 AM - 2:00 PM',
-      image_url: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=400&auto=format&fit=crop&q=80'
+      image_url: getDoctorImage({ id, name })
     };
 
     try {

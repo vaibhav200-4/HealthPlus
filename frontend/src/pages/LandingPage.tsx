@@ -79,7 +79,7 @@ export const LandingPage: React.FC = () => {
             <div className="lg:col-span-7 space-y-6">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-medical-100/80 border border-medical-200 text-medical-800 text-xs font-bold">
                 <Sparkles className="w-4 h-4 text-medical-600" />
-                <span>Next-Gen n8n AI Healthcare Platform</span>
+                <span>Next-Gen Smart Healthcare Platform</span>
               </div>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-[1.15]">
@@ -242,7 +242,7 @@ export const LandingPage: React.FC = () => {
         <div className="bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-900 rounded-3xl p-8 sm:p-12 text-white relative overflow-hidden shadow-2xl">
           <div className="relative z-10 max-w-2xl space-y-4">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full text-xs font-semibold text-tealmed-300 border border-white/20">
-              <Bot className="w-4 h-4" /> Powered by Gemini & n8n Automation
+              <Bot className="w-4 h-4" /> 24/7 AI Health Assistant
             </div>
             <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
               Need Instant Appointment Booking via Natural Chat?

@@ -6,6 +6,11 @@ export interface User {
   telegram_id?: string;
   role: 'user' | 'patient' | 'doctor' | 'staff' | 'admin' | 'super_admin';
   patient_code?: string;
+  date_of_birth?: string;
+  gender?: string;
+  blood_group?: string;
+  address?: string;
+  emergency_contact?: string;
   created_at?: string;
 }
 

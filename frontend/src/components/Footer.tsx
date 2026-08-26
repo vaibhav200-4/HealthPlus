@@ -78,7 +78,7 @@ export const Footer: React.FC = () => {
           <div className="flex gap-6">
             <span className="hover:text-slate-400 cursor-pointer">Privacy Policy</span>
             <span className="hover:text-slate-400 cursor-pointer">Terms of Service</span>
-            <span className="hover:text-slate-400 cursor-pointer">n8n AI Workflow Integration</span>
+            <span className="hover:text-slate-400 cursor-pointer">AI Health Assistant</span>
           </div>
         </div>
       </div>

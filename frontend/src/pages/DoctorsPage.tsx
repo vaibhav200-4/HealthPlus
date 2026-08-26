@@ -6,6 +6,7 @@ import { DoctorCard } from '../components/DoctorCard';
 import { AppointmentModal } from '../components/AppointmentModal';
 import { SkeletonDoctorCard } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
+import { getDoctorImage } from '../utils/doctorImages';
 import { Search, Filter, Sparkles, RefreshCw, Stethoscope } from 'lucide-react';
 
 export const DoctorsPage: React.FC = () => {
@@ -66,12 +67,12 @@ export const DoctorsPage: React.FC = () => {
         languages: ['English', 'Hindi'],
         consultation_fee: r.consultation_fee || 500,
         availability: r.availability,
-        image_url: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=400&auto=format&fit=crop&q=80'
+        image_url: getDoctorImage({ id: r.doctor_id, name: r.doctor_name })
       }));
       setDoctors(mappedDoctors);
       setIsVectorSearch(true);
     } catch (err) {
-      console.error('Pinecone vector search failed:', err);
+      console.error('Doctor search failed:', err);
       fetchDoctors();
     } finally {
       setLoading(false);
@@ -83,11 +84,11 @@ export const DoctorsPage: React.FC = () => {
       {/* Header */}
       <div className="bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-900 rounded-3xl p-8 text-white shadow-xl space-y-4">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 text-xs font-semibold text-tealmed-300 border border-white/20">
-          <Stethoscope className="w-4 h-4" /> Verified Medical Directory & Pinecone Search
+          <Stethoscope className="w-4 h-4" /> Verified Medical Directory
         </div>
         <h1 className="text-3xl font-extrabold tracking-tight">Find Top Specialist Doctors</h1>
         <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-          Search by doctor name, specialization, or medical concern. Powered by standard filtering and Pinecone vector semantic search.
+          Search for doctors by name, specialty, experience, or medical concern.
         </p>
 
         {/* Search Bar */}
@@ -106,7 +107,7 @@ export const DoctorsPage: React.FC = () => {
             type="submit"
             className="px-6 py-3 bg-tealmed-500 hover:bg-tealmed-600 text-white font-bold text-sm rounded-2xl shadow-lg shadow-tealmed-500/20 flex items-center justify-center gap-2 transition-all"
           >
-            <Sparkles className="w-4 h-4" /> AI Vector Search
+            <Sparkles className="w-4 h-4" /> Smart Search
           </button>
         </form>
       </div>
@@ -137,7 +138,7 @@ export const DoctorsPage: React.FC = () => {
       {/* Results Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-slate-900">
-          {isVectorSearch ? 'Pinecone Semantic Search Results' : 'Available Doctors'}{' '}
+          {isVectorSearch ? 'Smart Search Results' : 'Available Doctors'}{' '}
           <span className="text-xs text-slate-500 font-normal">({doctors.length} found)</span>
         </h2>
         {isVectorSearch && (

@@ -61,13 +61,13 @@ export const DashboardPage: React.FC = () => {
       <div className="bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-800 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full text-xs font-semibold text-tealmed-300">
-            <Sparkles className="w-4 h-4 text-tealmed-300" /> Patient Control Dashboard
+            <Sparkles className="w-4 h-4 text-tealmed-300" /> Patient Dashboard
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             Welcome back, {user?.name || 'Patient'}!
           </h1>
           <p className="text-xs sm:text-sm text-slate-300">
-            Manage your hospital bookings, check active slots, or consult our AI Assistant.
+            Manage your hospital bookings, check active slots, or consult our AI Health Assistant.
           </p>
         </div>
 
@@ -76,7 +76,7 @@ export const DashboardPage: React.FC = () => {
             onClick={() => setIsOpen(true)}
             className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-tealmed-500 hover:bg-tealmed-600 text-white font-bold text-xs shadow-lg shadow-tealmed-500/20 transition-all"
           >
-            <Bot className="w-4 h-4" /> AI Assistant
+            <Bot className="w-4 h-4" /> AI Health Assistant
           </button>
           <Link
             to="/doctors"

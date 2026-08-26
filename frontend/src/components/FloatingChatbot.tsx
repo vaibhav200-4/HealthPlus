@@ -49,12 +49,12 @@ export const FloatingChatbot: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm">Hospital AI Assistant</h3>
+              <h3 className="font-bold text-sm">Hospital Health Assistant</h3>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-semibold border border-emerald-400/30">
                 Online
               </span>
             </div>
-            <p className="text-xs text-slate-300">Powered by n8n & Gemini AI</p>
+            <p className="text-xs text-slate-300">Here to help with appointments, doctors, and healthcare services.</p>
           </div>
         </div>
 
@@ -73,7 +73,7 @@ export const FloatingChatbot: React.FC = () => {
             <div className="w-14 h-14 rounded-2xl bg-medical-50 text-medical-600 flex items-center justify-center mb-3 shadow-inner">
               <Bot className="w-8 h-8" />
             </div>
-            <h4 className="font-semibold text-slate-800 mb-1">Hello! I'm your AI Healthcare Assistant</h4>
+            <h4 className="font-semibold text-slate-800 mb-1">Hello! I'm your Health Assistant</h4>
             <p className="text-xs text-slate-500 mb-4 max-w-xs">
               Ask me about doctor specializations, available slots, or say "Book Dr. Neha tomorrow at 4 PM".
             </p>
@@ -144,7 +144,7 @@ export const FloatingChatbot: React.FC = () => {
                 <span className="w-2 h-2 bg-medical-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
                 <span className="w-2 h-2 bg-medical-600 rounded-full animate-bounce [animation-delay:0.4s]"></span>
               </div>
-              <span className="text-xs font-medium text-slate-400">n8n AI Agent thinking...</span>
+              <span className="text-xs font-medium text-slate-400">Health Assistant thinking...</span>
             </div>
           </div>
         )}

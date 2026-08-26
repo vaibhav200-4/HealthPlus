@@ -1,5 +1,6 @@
 import React from 'react';
 import { Doctor } from '../types';
+import { getDoctorImage } from '../utils/doctorImages';
 import { Stethoscope, Calendar, Clock, Star, MapPin, IndianRupee } from 'lucide-react';
 
 interface DoctorCardProps {
@@ -15,17 +16,19 @@ export const DoctorCard: React.FC<DoctorCardProps> = ({
   onBook,
   onViewDetails
 }) => {
+  const imageUrl = getDoctorImage(doctor);
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 overflow-hidden flex flex-col justify-between group">
       <div>
         {/* Image & Specialty Badge Header */}
         <div className="relative h-48 bg-gradient-to-tr from-slate-100 to-medical-50 overflow-hidden">
           <img
-            src={doctor.image_url || 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=400&auto=format&fit=crop&q=80'}
+            src={imageUrl}
             alt={doctor.name}
             className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=400&auto=format&fit=crop&q=80';
+              (e.target as HTMLImageElement).src = imageUrl;
             }}
           />
           <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold text-medical-700 shadow-sm border border-white">
