@@ -20,7 +20,21 @@ class UserProfile(BaseModel):
     telegram_id: Optional[str] = None
     role: str = "user"
     patient_code: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    gender: Optional[str] = None
+    blood_group: Optional[str] = None
+    address: Optional[str] = None
+    emergency_contact: Optional[str] = None
     created_at: Optional[str] = None
+
+class PatientProfileUpdate(BaseModel):
+    phone: Optional[str] = None
+    gender: Optional[str] = None
+    blood_group: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    address: Optional[str] = None
+    emergency_contact: Optional[str] = None
+
 
 class LinkTelegramRequest(BaseModel):
     telegram_id: str

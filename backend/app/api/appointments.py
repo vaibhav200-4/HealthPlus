@@ -1,15 +1,20 @@
 # backend/app/appointment.py
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from typing import List, Dict, Any
 from app.schemas.appointment_schema import AppointmentCreate, AppointmentReschedule, AppointmentResponse
 from app.services.booking_service import BookingService
+from app.services.email_service import send_appointment_confirmation_email
 from app.auth.auth_handler import get_current_user
 from app.database.supabase_client import SupabaseService
 
 router = APIRouter(prefix="/api/appointments", tags=["Appointments"])
 
 @router.post("", response_model=Dict[str, Any])
-def create_manual_appointment(data: AppointmentCreate, current_user: dict = Depends(get_current_user)):
+def create_manual_appointment(
+    data: AppointmentCreate,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
     user_id = current_user["id"]
     success, message, app_data = BookingService.create_appointment(
         user_id=user_id,
@@ -30,6 +35,23 @@ def create_manual_appointment(data: AppointmentCreate, current_user: dict = Depe
             "success": False,
             "message": message
         }
+
+    # Fire-and-forget email confirmation via BackgroundTasks
+    target_email = app_data.get("patient_email") or data.patient_email or current_user.get("email", "")
+    if target_email:
+        background_tasks.add_task(
+            send_appointment_confirmation_email,
+            to_email=target_email,
+            patient_name=app_data.get("patient_name") or data.patient_name,
+            doctor_name=app_data.get("doctor_name") or data.doctor_name,
+            hospital_name=app_data.get("hospital_name") or data.hospital_name,
+            appointment_date=str(app_data.get("date") or data.date),
+            start_time=app_data.get("start_time") or data.start_time,
+            end_time=app_data.get("end_time") or data.end_time,
+            user_id=user_id,
+            hospital_id=app_data.get("hospital_id"),
+            appointment_id=app_data.get("id")
+        )
 
     return {
         "success": True,

@@ -1,10 +1,11 @@
 import uuid
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from app.auth.auth_handler import verify_n8n_tool_context
 from app.database.supabase_client import SupabaseService
 from app.services.booking_service import BookingService
 from app.services.schedule_service import ScheduleService
+from app.services.email_service import send_appointment_confirmation_email
 
 router = APIRouter(prefix="/api/ai-tools", tags=["AI Agent Role-Scoped Tools"])
 
@@ -47,6 +48,7 @@ def ai_get_doctor_availability(
 @router.post("/book-appointment")
 def ai_book_appointment(
     payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
     context: dict = Depends(verify_n8n_tool_context)
 ):
     # Server-side user_id & hospital_id injection from verified context (LLM cannot forge identity)
@@ -89,6 +91,32 @@ def ai_book_appointment(
     )
     if not success:
         raise HTTPException(status_code=400, detail=msg)
+
+    # Resolve recipient email: patient_email from app_data/payload -> profiles.email fallback -> skip if unresolvable
+    resolved_email = app_data.get("patient_email") or payload.get("patient_email") or p_email
+    if not resolved_email and user_id:
+        if profiles:
+            resolved_email = profiles[0].get("email", "")
+        else:
+            p_recs = SupabaseService.get_records("profiles", {"id": user_id})
+            if p_recs:
+                resolved_email = p_recs[0].get("email", "")
+
+    if resolved_email and resolved_email.strip():
+        background_tasks.add_task(
+            send_appointment_confirmation_email,
+            to_email=resolved_email.strip(),
+            patient_name=app_data.get("patient_name") or p_name,
+            doctor_name=app_data.get("doctor_name") or doc_name,
+            hospital_name=app_data.get("hospital_name") or h_name,
+            appointment_date=str(app_data.get("date") or payload.get("date")),
+            start_time=app_data.get("start_time") or payload.get("start_time"),
+            end_time=app_data.get("end_time") or payload.get("end_time", ""),
+            user_id=user_id,
+            hospital_id=context.get("hospital_id"),
+            appointment_id=app_data.get("id")
+        )
+
     return app_data
 
 @router.post("/cancel-appointment")

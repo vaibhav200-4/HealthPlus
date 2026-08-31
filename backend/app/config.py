@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -30,5 +31,12 @@ class Settings:
         o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000").split(",") if o.strip()
     ]
     ALLOWED_ORIGIN_REGEX: str = os.getenv("ALLOWED_ORIGIN_REGEX", r"https://.*\.vercel\.app")
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
 
 settings = Settings()
+
+logger = logging.getLogger("hospital_app.config")
+if not settings.RESEND_API_KEY:
+    logger.warning("RESEND_API_KEY environment variable is not set. Resend email notifications will be skipped.")
+

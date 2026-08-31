@@ -14,3 +14,4 @@ google-genai==1.51.0
 python-multipart==0.0.9
 charset-normalizer<4,>=2
 requests>=2.32.3,<3
+resend>=2.0.0
