@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
 import api from '../services/api';
 import { Appointment, Doctor } from '../types';
 import { AppointmentModal } from '../components/AppointmentModal';
 import { DoctorCard } from '../components/DoctorCard';
+import { PractoSearchBar } from '../components/PractoSearchBar';
 import { SkeletonDoctorCard } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { 
@@ -15,16 +16,16 @@ import {
   Stethoscope, 
   Search, 
   User as UserIcon, 
-  CheckCircle2, 
-  XCircle, 
   ArrowRight,
   Sparkles,
-  MapPin
+  MapPin,
+  Globe
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const { setIsOpen } = useChat();
+  const navigate = useNavigate();
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [featuredDoctors, setFeaturedDoctors] = useState<Doctor[]>([]);
@@ -32,20 +33,40 @@ export const DashboardPage: React.FC = () => {
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [modalOpen, setModalOpen] = useState<boolean>(false);
 
+  const [dashboardLocationName, setDashboardLocationName] = useState<string>('Indore, MP');
+
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
   const fetchDashboardData = async () => {
     try {
-      const [appRes, docRes] = await Promise.all([
+      const [appRes, nearbyRes] = await Promise.all([
         api.get('/appointments/my'),
-        api.get('/doctors')
+        api.get('/doctors/nearby?lat=22.7533&lng=75.8937&radius_m=10000')
       ]);
       setAppointments(appRes.data || []);
-      setFeaturedDoctors((docRes.data || []).slice(0, 3));
+      const results = nearbyRes.data?.results || [];
+      setFeaturedDoctors(results.slice(0, 3));
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDashboardNearbySearch = async (params: { lat: number; lng: number; locationName: string; specialty: string }) => {
+    setLoading(true);
+    setDashboardLocationName(params.locationName);
+    try {
+      let url = `/doctors/nearby?lat=${params.lat}&lng=${params.lng}&radius_m=10000`;
+      if (params.specialty) {
+        url += `&specialty=${encodeURIComponent(params.specialty)}`;
+      }
+      const res = await api.get(url);
+      setFeaturedDoctors((res.data?.results || []).slice(0, 6));
+    } catch (err) {
+      console.error('Dashboard nearby search error:', err);
     } finally {
       setLoading(false);
     }
@@ -58,32 +79,42 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-8 pb-12">
       {/* Header Welcome Section */}
-      <div className="bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-800 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full text-xs font-semibold text-tealmed-300">
-            <Sparkles className="w-4 h-4 text-tealmed-300" /> Patient Dashboard
+      <div className="bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-800 rounded-3xl p-6 sm:p-8 text-white shadow-xl space-y-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full text-xs font-semibold text-tealmed-300">
+              <Sparkles className="w-4 h-4 text-tealmed-300" /> Patient Dashboard
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Welcome back, {user?.name || 'Patient'}!
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300">
+              Find doctors near your location, manage hospital bookings, or consult our AI Health Assistant.
+            </p>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            Welcome back, {user?.name || 'Patient'}!
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-300">
-            Manage your hospital bookings, check active slots, or consult our AI Health Assistant.
-          </p>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => setIsOpen(true)}
+              className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-tealmed-500 hover:bg-tealmed-600 text-white font-bold text-xs shadow-lg shadow-tealmed-500/20 transition-all"
+            >
+              <Bot className="w-4 h-4" /> AI Health Assistant
+            </button>
+            <Link
+              to="/doctors"
+              className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-slate-900 font-bold text-xs hover:bg-slate-100 transition-all shadow-sm"
+            >
+              <Stethoscope className="w-4 h-4 text-medical-600" /> Directory
+            </Link>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => setIsOpen(true)}
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-tealmed-500 hover:bg-tealmed-600 text-white font-bold text-xs shadow-lg shadow-tealmed-500/20 transition-all"
-          >
-            <Bot className="w-4 h-4" /> AI Health Assistant
-          </button>
-          <Link
-            to="/doctors"
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-slate-900 font-bold text-xs hover:bg-slate-100 transition-all shadow-sm"
-          >
-            <Stethoscope className="w-4 h-4 text-medical-600" /> Book Doctor
-          </Link>
+        {/* Practo Search Bar */}
+        <div className="pt-2 border-t border-white/10">
+          <p className="text-xs text-tealmed-300 font-semibold mb-2 flex items-center gap-1.5">
+            <MapPin className="w-4 h-4" /> Practo-Style Nearby Doctor & Specialty Search:
+          </p>
+          <PractoSearchBar onSearch={handleDashboardNearbySearch} />
         </div>
       </div>
 
@@ -168,26 +199,34 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Recommended Doctors */}
+      {/* Recommended Nearby Doctors */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-900">Recommended Specialists</h2>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <MapPin className="w-5 h-5 text-medical-600" />
+            Nearby Doctors & Clinics ({dashboardLocationName})
+          </h2>
           <Link to="/doctors" className="text-xs font-bold text-medical-600 hover:underline flex items-center gap-1">
-            View All <ArrowRight className="w-3.5 h-3.5" />
+            View All Directory <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map((i) => <SkeletonDoctorCard key={i} />)}
           </div>
+        ) : featuredDoctors.length === 0 ? (
+          <EmptyState
+            title="No nearby doctors found"
+            description="Try expanding your search radius or selecting a different location."
+          />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {featuredDoctors.map((doc) => (
               <DoctorCard
                 key={doc.id}
                 doctor={doc}
-                hospitalName={doc.hospital_id === 'H001' ? 'Sunrise Hospital' : 'Green Valley Centre'}
+                hospitalName={doc.hospital_name || (doc.hospital_id === 'H001' ? 'Sunrise Hospital' : 'Green Valley Centre')}
                 onBook={(d) => {
                   setSelectedDoctor(d);
                   setModalOpen(true);
@@ -196,13 +235,27 @@ export const DashboardPage: React.FC = () => {
             ))}
           </div>
         )}
+
+        {featuredDoctors.some((d) => d.source === 'external') && (
+          <div className="pt-4 border-t border-slate-200 text-center text-xs text-slate-500 flex items-center justify-center gap-1.5">
+            <Globe className="w-4 h-4 text-slate-400" />
+            <span>External clinic data provided by</span>
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-medical-600 hover:underline"
+            >
+              © OpenStreetMap contributors
+            </a>
+          </div>
+        )}
       </div>
 
       <AppointmentModal
         doctor={selectedDoctor}
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
-        onSuccess={fetchDashboardData}
       />
     </div>
   );

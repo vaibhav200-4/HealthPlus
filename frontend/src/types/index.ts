@@ -28,6 +28,7 @@ export interface Doctor {
   id: string;
   profile_id?: string;
   hospital_id: string;
+  hospital_name?: string;
   department_id?: string;
   department_name?: string;
   name: string;
@@ -41,6 +42,13 @@ export interface Doctor {
   image_url?: string;
   rating?: number;
   total_reviews?: number;
+  latitude?: number;
+  longitude?: number;
+  distance_meters?: number;
+  source?: 'registered' | 'external';
+  bookable?: boolean;
+  phone?: string;
+  address?: string;
 }
 
 export interface Hospital {
