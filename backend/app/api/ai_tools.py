@@ -1,13 +1,31 @@
 import uuid
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Header
 from typing import List, Optional, Dict, Any
-from app.auth.auth_handler import verify_n8n_tool_context
+from app.auth.auth_handler import verify_n8n_tool_context, verify_voice_service_token
 from app.database.supabase_client import SupabaseService
 from app.services.booking_service import BookingService
 from app.services.schedule_service import ScheduleService
 from app.services.email_service import send_appointment_confirmation_email
 
 router = APIRouter(prefix="/api/ai-tools", tags=["AI Agent Role-Scoped Tools"])
+
+def verify_ai_tool_context(
+    x_n8n_token: Optional[str] = Header(None),
+    x_voice_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """
+    Unified security dependency supporting both n8n (X-N8n-Token) and Voice Agent (X-Voice-Token).
+    Extends authentication for PSTN & WebRTC voice agents without altering existing n8n verification.
+    """
+    if x_voice_token:
+        return verify_voice_service_token(x_voice_token=x_voice_token, authorization=authorization)
+    try:
+        return verify_n8n_tool_context(x_n8n_token=x_n8n_token, authorization=authorization)
+    except HTTPException:
+        if authorization and "bearer" in authorization.lower():
+            return verify_voice_service_token(x_voice_token=x_voice_token, authorization=authorization)
+        raise
 
 # ==========================================
 # PATIENT TOOLS
@@ -17,7 +35,7 @@ router = APIRouter(prefix="/api/ai-tools", tags=["AI Agent Role-Scoped Tools"])
 def ai_search_doctors(
     query: Optional[str] = None,
     specialization: Optional[str] = None,
-    context: dict = Depends(verify_n8n_tool_context)
+    context: dict = Depends(verify_ai_tool_context)
 ):
     # Server-side hospital_id injection from verified context
     h_id = context["hospital_id"]
@@ -30,7 +48,7 @@ def ai_search_doctors(
     return doctors
 
 @router.get("/search-hospitals")
-def ai_search_hospitals(context: dict = Depends(verify_n8n_tool_context)):
+def ai_search_hospitals(context: dict = Depends(verify_ai_tool_context)):
     h_id = context["hospital_id"]
     hospitals = SupabaseService.get_records("hospitals", {"id": h_id})
     if not hospitals:
@@ -41,7 +59,7 @@ def ai_search_hospitals(context: dict = Depends(verify_n8n_tool_context)):
 def ai_get_doctor_availability(
     doctor_id: str,
     date: str,
-    context: dict = Depends(verify_n8n_tool_context)
+    context: dict = Depends(verify_ai_tool_context)
 ):
     return ScheduleService.get_doctor_available_slots(doctor_id, date)
 
@@ -49,7 +67,7 @@ def ai_get_doctor_availability(
 def ai_book_appointment(
     payload: Dict[str, Any],
     background_tasks: BackgroundTasks,
-    context: dict = Depends(verify_n8n_tool_context)
+    context: dict = Depends(verify_ai_tool_context)
 ):
     # Server-side user_id & hospital_id injection from verified context (LLM cannot forge identity)
     user_id = context["user_id"]
@@ -102,7 +120,7 @@ def ai_book_appointment(
             if p_recs:
                 resolved_email = p_recs[0].get("email", "")
 
-    if resolved_email and resolved_email.strip():
+    if resolved_email and resolved_email.strip() and not resolved_email.strip().lower().endswith("@voice.local"):
         background_tasks.add_task(
             send_appointment_confirmation_email,
             to_email=resolved_email.strip(),

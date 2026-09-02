@@ -1,4 +1,8 @@
+import hmac
+import re
+import threading
 import time
+import uuid
 import jwt
 from typing import Dict, Any, Optional
 from fastapi import HTTPException, Security, Depends, status, Header
@@ -10,8 +14,33 @@ from app.database.supabase_client import SupabaseService, get_supabase_client
 from collections import defaultdict
 from fastapi import Request
 
+_PROFILE_CREATION_LOCK = threading.Lock()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
+
+def normalize_phone_e164(phone: str, default_country_code: str = "+91") -> str:
+    """
+    Normalizes raw telephone provider strings into standard E.164 format (+[country_code][digits]).
+    E.g.:
+    "9876543210" -> "+919876543210"
+    "09876543210" -> "+919876543210"
+    "+91 98765 43210" -> "+919876543210"
+    """
+    if not phone:
+        return ""
+    clean = re.sub(r"[^\d+]", "", str(phone).strip())
+    if not clean:
+        return ""
+    if clean.startswith("+"):
+        return clean
+    if clean.startswith("00"):
+        return "+" + clean[2:]
+    if clean.startswith("0") and len(clean) == 11:
+        clean = clean[1:]
+    if len(clean) == 10:
+        return f"{default_country_code}{clean}"
+    return f"+{clean}"
+
 
 class SimpleRateLimiter:
     """
@@ -283,4 +312,140 @@ def verify_n8n_tool_context(
         )
 
 verify_n8n_context_token = verify_n8n_tool_context
+
+
+def create_voice_service_token(
+    user_id: str,
+    role: str = "patient",
+    hospital_id: Optional[str] = None,
+    session_id: Optional[str] = None
+) -> str:
+    """
+    Issues a short-lived signed JWT token (15-minute validity) specifically for Voice Agent API communication.
+    Cryptographically binds user identity, role, and hospital scoping using VOICE_SERVICE_SECRET.
+    """
+    payload = {
+        "user_id": user_id,
+        "role": role,
+        "hospital_id": hospital_id or "H001",
+        "session_id": session_id or "",
+        "exp": int(time.time()) + 900
+    }
+    return jwt.encode(payload, settings.VOICE_SERVICE_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def verify_voice_service_token(
+    x_voice_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """
+    FastAPI dependency that Voice Service API tool endpoints use to cryptographically verify context.
+    Derives user_id, role, and hospital_id strictly from this verified signed JWT backed by VOICE_SERVICE_SECRET,
+    never relying on LLM-generated text arguments or raw frontend parameters.
+    """
+    token = x_voice_token
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing signed Voice Service token (X-Voice-Token header required)"
+        )
+
+    try:
+        payload = jwt.decode(token, settings.VOICE_SERVICE_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        return {
+            "user_id": payload.get("user_id"),
+            "role": payload.get("role", "patient"),
+            "hospital_id": payload.get("hospital_id"),
+            "session_id": payload.get("session_id"),
+            "is_super_admin": payload.get("role") == "super_admin"
+        }
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Voice Service token has expired"
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Voice Service token"
+        )
+
+
+verify_voice_context_token = verify_voice_service_token
+
+
+def verify_voice_bootstrap_secret(
+    x_voice_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+) -> bool:
+    """
+    Constant-time raw secret verification dependency used ONLY to guard POST /api/auth/voice-token-by-phone.
+    Allows server_telephony.py to bootstrap a scoped session JWT using the raw VOICE_SERVICE_SECRET.
+    """
+    token = x_voice_token
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    expected = settings.VOICE_SERVICE_SECRET or ""
+    if not token or not expected or not hmac.compare_digest(token.strip(), expected.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Voice Service bootstrap secret"
+        )
+    return True
+
+
+def find_or_create_caller_by_phone(raw_phone: str) -> Dict[str, Any]:
+    """
+    Looks up a user profile in Supabase by phone number (E.164 normalized).
+    If no profile exists, creates a new patient profile using Option (b) auto-generated email format:
+    f"{normalized_phone}@voice.local" with role='patient'.
+    Wrapped in a thread lock to prevent race conditions on simultaneous calls from new callers.
+    """
+    normalized = normalize_phone_e164(raw_phone)
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or missing phone number for PSTN caller resolution"
+        )
+
+    # 1. First lockless read
+    existing_by_phone = SupabaseService.get_records("profiles", {"phone": normalized})
+    if existing_by_phone:
+        return existing_by_phone[0]
+
+    placeholder_email = f"{normalized}@voice.local"
+    existing_by_email = SupabaseService.get_records("profiles", {"email": placeholder_email})
+    if existing_by_email:
+        return existing_by_email[0]
+
+    # 2. Acquire thread lock for safe atomic creation
+    with _PROFILE_CREATION_LOCK:
+        recheck_phone = SupabaseService.get_records("profiles", {"phone": normalized})
+        if recheck_phone:
+            return recheck_phone[0]
+
+        recheck_email = SupabaseService.get_records("profiles", {"email": placeholder_email})
+        if recheck_email:
+            return recheck_email[0]
+
+        user_id = str(uuid.uuid4())
+        dummy_pwd_hash = hash_password(str(uuid.uuid4()))
+        profile_data = {
+            "id": user_id,
+            "name": f"PSTN Caller ({normalized[-4:]})",
+            "email": placeholder_email,
+            "phone": normalized,
+            "password_hash": dummy_pwd_hash,
+            "role": "patient"
+        }
+
+        created = SupabaseService.insert_record("profiles", profile_data)
+        return created or profile_data
+
+
+
 

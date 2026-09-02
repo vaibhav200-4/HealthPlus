@@ -12,7 +12,6 @@ else:
     load_dotenv()
 
 class Settings:
-    N8N_WEBHOOK_URL: str = os.getenv("N8N_WEBHOOK_URL", "")
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -22,6 +21,7 @@ class Settings:
     ADMIN_USER_ID: str = os.getenv("ADMIN_USER_ID", "")
     TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "super-secret-telegram-webhook-key-2026")
     N8N_JWT_SECRET: str = os.getenv("N8N_JWT_SECRET", "super-secret-n8n-tool-context-key-2026")
+    VOICE_SERVICE_SECRET: str = os.getenv("VOICE_SERVICE_SECRET", "super-secret-voice-service-key-2026")
     ENABLE_TELEGRAM_HMAC_VERIFICATION: bool = os.getenv("ENABLE_TELEGRAM_HMAC_VERIFICATION", "false").lower() == "true"
     JWT_SECRET: str = os.getenv("JWT_SECRET", "super-secret-jwt-key-for-hospital-app-2026")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "")
@@ -33,6 +33,13 @@ class Settings:
     ALLOWED_ORIGIN_REGEX: str = os.getenv("ALLOWED_ORIGIN_REGEX", r"https://.*\.vercel\.app")
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     EMAIL_FROM: str = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
+
+    # LangGraph Agent Settings
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "nvidia")  # "nvidia" | "gemini"
+    NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
+    USE_PINECONE_RAG: bool = os.getenv("USE_PINECONE_RAG", "false").lower() == "true"
+    SUPABASE_DB_URL: str = os.getenv("SUPABASE_DB_URL", "")
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 settings = Settings()
 

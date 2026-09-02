@@ -15,3 +15,9 @@ python-multipart==0.0.9
 charset-normalizer<4,>=2
 requests>=2.32.3,<3
 resend>=2.0.0
+langgraph
+langgraph-checkpoint-postgres
+langchain-nvidia-ai-endpoints
+langchain-google-genai
+qrcode[pil]
+psycopg[binary]>=3.1

@@ -11,7 +11,7 @@ logger = logging.getLogger("hospital_app")
 
 app = FastAPI(
     title="Hospital Appointment System API",
-    description="Full-stack FastAPI backend integrated with n8n AI agent workflow, Supabase, and Pinecone",
+    description="Full-stack FastAPI backend integrated with LangGraph in-process agent, Supabase, and Pinecone",
     version="1.0.0"
 )
 
@@ -44,8 +44,10 @@ app.include_router(telegram_webhook.router)
 app.include_router(admin.router)
 app.include_router(ai_tools.router)
 
+from app.agent.memory import setup_checkpointer
+
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     logger.info("Initializing Hospital System Backend...")
     is_active = SupabaseService.is_supabase_active()
     if settings.ENVIRONMENT.lower() == "production" and not is_active:
@@ -54,11 +56,13 @@ def on_startup():
     elif not is_active:
         logger.warning("WARNING: Running in DEVELOPMENT mode with in-memory local database fallback.")
 
+    await setup_checkpointer()
+
 @app.get("/health")
 def health_check():
     return {
         "status": "healthy",
-        "n8n_webhook_configured": bool(settings.N8N_WEBHOOK_URL),
+        "service": "LangGraph Agent Hospital Assistant",
         "supabase_configured": bool(settings.SUPABASE_URL and "your-supabase" not in settings.SUPABASE_URL),
         "pinecone_configured": bool(settings.PINECONE_API_KEY)
     }

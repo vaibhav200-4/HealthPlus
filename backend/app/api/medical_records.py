@@ -1,3 +1,4 @@
+# api/medical_records.py
 import uuid
 import time
 import jwt
@@ -41,34 +42,11 @@ def generate_signed_url(file_path: Optional[str]) -> Optional[str]:
     signed_token = jwt.encode(token_payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     return f"/api/medical-records/file?path={file_path}&token={signed_token}"
 
+from app.services.patient_service import PatientService
+
 def resolve_patient_id(patient_identifier: str) -> str:
-    patient_rec = SupabaseService.get_record_by_id("patients", patient_identifier)
-    if patient_rec:
-        return patient_rec["id"]
-
-    pts = SupabaseService.get_records("patients", {"profile_id": patient_identifier})
-    if pts:
-        return pts[0]["id"]
-
-    prof = SupabaseService.get_record_by_id("profiles", patient_identifier)
-    if prof:
-        new_p_id = str(uuid.uuid4())
-        new_p = {
-            "id": new_p_id,
-            "profile_id": patient_identifier,
-            "patient_code": f"PT-{uuid.uuid4().hex[:6].upper()}"
-        }
-        SupabaseService.insert_record("patients", new_p)
-        return new_p_id
-
-    new_p_id = str(uuid.uuid4())
-    new_p = {
-        "id": new_p_id,
-        "profile_id": patient_identifier,
-        "patient_code": f"PT-{uuid.uuid4().hex[:6].upper()}"
-    }
-    SupabaseService.insert_record("patients", new_p)
-    return new_p_id
+    p_rec = PatientService.resolve_patient(patient_identifier)
+    return p_rec.get("id", "")
 
 @router.post("/upload", response_model=MedicalRecordBase)
 async def upload_medical_record(
@@ -254,6 +232,19 @@ def get_patient_medical_records(patient_id: str, identity: dict = Depends(get_id
         ))
 
     return res
+
+@router.get("/patient/{patient_id}/summary")
+def get_patient_clinical_summary(
+    patient_id: str,
+    identity: dict = Depends(get_identity_context)
+):
+    """
+    Get doctor-facing patient clinical summary synthesized from intake notes,
+    medical records, and appointments with MAX(created_at) caching.
+    """
+    from app.services.summary_service import SummaryService
+    return SummaryService.generate_patient_summary(patient_id)
+
 
 @router.post("", response_model=MedicalRecordBase)
 def create_medical_record(data: MedicalRecordCreate, doctor_info: dict = Depends(get_doctor_user)):

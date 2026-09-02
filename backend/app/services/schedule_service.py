@@ -1,5 +1,4 @@
-# Note: n8n's AI Agent workflow must be updated manually to replace its Google Sheets nodes ('Get row(s) google sheet' and 'Append row in sheet in Google Sheets') with a Postgres node pointed at this same Supabase schedules/appointments tables, using the Supabase connection pooler credentials. The AI Agent's booking tool should call this backend's POST /api/appointments endpoint instead of writing directly to Postgres, so that BookingService's double-booking validation applies to AI-made bookings too.
-
+# services/schedule_service.py
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
