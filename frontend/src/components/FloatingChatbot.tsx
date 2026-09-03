@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
-import { Bot, X, Send, Sparkles, User as UserIcon, RefreshCw, MessageSquare } from 'lucide-react';
+import { Bot, X, Send, Sparkles, User as UserIcon, Paperclip, Loader2, AlertCircle, FileText, Image as ImageIcon, ExternalLink } from 'lucide-react';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 export const FloatingChatbot: React.FC = () => {
-  const { messages, loading, isOpen, setIsOpen, sendMessage } = useChat();
+  const { messages, loading, uploading, isOpen, setIsOpen, sendMessage, uploadFile } = useChat();
   const [input, setInput] = useState('');
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -15,13 +18,48 @@ export const FloatingChatbot: React.FC = () => {
     if (isOpen) {
       scrollToBottom();
     }
-  }, [messages, loading, isOpen]);
+  }, [messages, loading, uploading, isOpen]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || uploading) return;
+    setUploadError(null);
     sendMessage(input);
     setInput('');
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadError(null);
+
+    // Client-side file size check (15MB)
+    const MAX_SIZE = 15 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setUploadError('File size exceeds maximum limit of 15MB.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(ext)) {
+      setUploadError('Invalid file format. Allowed formats: PDF, JPG, PNG, WEBP.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    try {
+      await uploadFile(file);
+    } catch (err: any) {
+      const errMsg = err.response?.data?.detail || err.message || 'File upload failed. Please try again.';
+      setUploadError(errMsg);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   if (!isOpen) {
@@ -39,6 +77,72 @@ export const FloatingChatbot: React.FC = () => {
     );
   }
 
+  const renderMessageContent = (msg: any) => {
+    const isImage = msg.file_type && ['jpg', 'jpeg', 'png', 'webp'].includes(msg.file_type.toLowerCase());
+    const isPdf = msg.file_type && msg.file_type.toLowerCase() === 'pdf';
+
+    return (
+      <div className="space-y-2">
+        {msg.role === 'assistant' ? (
+          <MarkdownRenderer content={msg.message} />
+        ) : (
+          <div className="whitespace-pre-wrap">{msg.message}</div>
+        )}
+        {(msg.signed_file_url || msg.file_url) && (
+          <div className="mt-2 pt-2 border-t border-slate-200/40">
+            {isImage ? (
+              <div className="space-y-1">
+                <img
+                  src={msg.signed_file_url || msg.file_url}
+                  alt={msg.title || 'Uploaded image'}
+                  className="max-h-48 max-w-full rounded-xl object-cover border border-slate-200 shadow-sm"
+                />
+                <a
+                  href={msg.signed_file_url || msg.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`inline-flex items-center gap-1 text-[11px] font-medium underline ${
+                    msg.role === 'user' ? 'text-medical-100 hover:text-white' : 'text-medical-600 hover:text-medical-800'
+                  }`}
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  View original image
+                </a>
+              </div>
+            ) : isPdf ? (
+              <a
+                href={msg.signed_file_url || msg.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold transition-colors ${
+                  msg.role === 'user'
+                    ? 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                    : 'bg-slate-100 border-slate-200 text-slate-800 hover:bg-slate-200'
+                }`}
+              >
+                <FileText className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <span className="truncate max-w-[180px]">{msg.title || 'Medical Record Document.pdf'}</span>
+                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+              </a>
+            ) : (
+              <a
+                href={msg.signed_file_url || msg.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center gap-2 p-2 rounded-xl border text-xs font-semibold ${
+                  msg.role === 'user' ? 'text-white underline' : 'text-medical-600 underline'
+                }`}
+              >
+                <FileText className="w-4 h-4 flex-shrink-0" />
+                <span>View Attachment ({msg.title || 'Document'})</span>
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="fixed bottom-4 right-4 z-50 w-[92vw] sm:w-[420px] h-[580px] max-h-[85vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5">
       {/* Chat Header */}
@@ -54,7 +158,7 @@ export const FloatingChatbot: React.FC = () => {
                 Online
               </span>
             </div>
-            <p className="text-xs text-slate-300">Here to help with appointments, doctors, and healthcare services.</p>
+            <p className="text-xs text-slate-300">Here to help with appointments, doctors, and medical uploads.</p>
           </div>
         </div>
 
@@ -75,7 +179,7 @@ export const FloatingChatbot: React.FC = () => {
             </div>
             <h4 className="font-semibold text-slate-800 mb-1">Hello! I'm your Health Assistant</h4>
             <p className="text-xs text-slate-500 mb-4 max-w-xs">
-              Ask me about doctor specializations, available slots, or say "Book Dr. Neha tomorrow at 4 PM".
+              Ask me about appointments, doctors, or upload your medical records via the attach icon below.
             </p>
             <div className="grid grid-cols-1 gap-2 w-full text-xs">
               <button
@@ -111,7 +215,7 @@ export const FloatingChatbot: React.FC = () => {
                     : 'bg-white text-slate-800 border border-slate-200 rounded-bl-none shadow-sm'
                 }`}
               >
-                <div className="whitespace-pre-wrap">{msg.message}</div>
+                {renderMessageContent(msg)}
                 {msg.created_at && (
                   <span
                     className={`block text-[10px] mt-1.5 text-right ${
@@ -132,8 +236,8 @@ export const FloatingChatbot: React.FC = () => {
           ))
         )}
 
-        {/* Loading Indicator */}
-        {loading && (
+        {/* Loading / Uploading Indicator */}
+        {(loading || uploading) && (
           <div className="flex gap-3 justify-start">
             <div className="w-8 h-8 rounded-full bg-medical-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">
               <Bot className="w-4 h-4 animate-spin" />
@@ -144,7 +248,9 @@ export const FloatingChatbot: React.FC = () => {
                 <span className="w-2 h-2 bg-medical-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
                 <span className="w-2 h-2 bg-medical-600 rounded-full animate-bounce [animation-delay:0.4s]"></span>
               </div>
-              <span className="text-xs font-medium text-slate-400">Health Assistant thinking...</span>
+              <span className="text-xs font-medium text-slate-400">
+                {uploading ? 'Uploading document & notifying assistant...' : 'Health Assistant thinking...'}
+              </span>
             </div>
           </div>
         )}
@@ -152,19 +258,59 @@ export const FloatingChatbot: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Inline Upload Error Banner */}
+      {uploadError && (
+        <div className="px-3 py-2 bg-red-50 border-t border-red-200 flex items-center justify-between text-xs text-red-700 font-medium">
+          <div className="flex items-center gap-1.5 truncate">
+            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+            <span className="truncate">{uploadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUploadError(null)}
+            className="p-1 text-red-500 hover:text-red-800 rounded-md"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Input Form */}
       <form onSubmit={handleSend} className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept="application/pdf,image/jpeg,image/png,image/webp"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={loading || uploading}
+          title="Attach PDF or image document (Max 15MB)"
+          className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0 border border-slate-200"
+        >
+          {uploading ? (
+            <Loader2 className="w-4 h-4 text-medical-600 animate-spin" />
+          ) : (
+            <Paperclip className="w-4 h-4 text-slate-600 hover:text-medical-600" />
+          )}
+        </button>
+
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask AI or book appointment..."
           className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:bg-white transition-all placeholder:text-slate-400"
-          disabled={loading}
+          disabled={loading || uploading}
         />
+
         <button
           type="submit"
-          disabled={loading || !input.trim()}
+          disabled={loading || uploading || !input.trim()}
           className="w-10 h-10 rounded-full bg-medical-600 text-white flex items-center justify-center hover:bg-medical-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-medical-500/20 transition-all flex-shrink-0"
         >
           <Send className="w-4 h-4" />

@@ -12,11 +12,13 @@ from pinecone import Pinecone
 # CONFIG
 # ============================================================
 
-load_dotenv()
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from backend.app.config import settings
 
-GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "hospital-doctors")
+GEMINI_API_KEY = settings.GOOGLE_API_KEY
+PINECONE_API_KEY = settings.PINECONE_API_KEY
+INDEX_NAME = settings.PINECONE_INDEX_NAME
 
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 EMBEDDING_DIMENSION = 3072

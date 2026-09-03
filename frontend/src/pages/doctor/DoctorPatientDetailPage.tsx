@@ -4,6 +4,7 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { MedicalRecord, Appointment } from '../../types';
 import { StatusBadge } from '../../components/doctor/StatusBadge';
+import { MarkdownRenderer } from '../../components/MarkdownRenderer';
 import {
   ArrowLeft,
   User as UserIcon,
@@ -20,7 +21,9 @@ import {
   FileUp,
   X,
   Building,
-  Heart
+  Heart,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 
 export const DoctorPatientDetailPage: React.FC = () => {
@@ -33,6 +36,11 @@ export const DoctorPatientDetailPage: React.FC = () => {
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // AI Patient Summary State
+  const [summaryData, setSummaryData] = useState<{ summary: string; cached: boolean; generated_at: string } | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState<boolean>(false);
+  const [summaryError, setSummaryError] = useState<string>('');
+
   // Modal State
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
   const [title, setTitle] = useState<string>('');
@@ -41,6 +49,23 @@ export const DoctorPatientDetailPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string>('');
+
+  const fetchSummary = async (targetId: string) => {
+    if (summaryLoading) return;
+    setSummaryLoading(true);
+    setSummaryError('');
+    try {
+      const res = await api.get(`/medical-records/patient/${targetId}/summary`);
+      if (res?.data) {
+        setSummaryData(res.data);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch AI Patient Summary:', err);
+      setSummaryError('Failed to load AI Patient Summary.');
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (patientId) {
@@ -68,6 +93,11 @@ export const DoctorPatientDetailPage: React.FC = () => {
           )
         )
       );
+
+      const primaryId = targetIds[0] || patientId || '';
+      if (primaryId) {
+        fetchSummary(primaryId);
+      }
 
       const recordPromises = targetIds.map((id) =>
         api.get(`/medical-records/patient/${id}`).catch(() => ({ data: [] }))
@@ -270,6 +300,75 @@ export const DoctorPatientDetailPage: React.FC = () => {
               )}
             </div>
           )}
+
+          {/* AI Patient Summary Card */}
+          <div className="bg-gradient-to-br from-teal-50/60 via-white to-emerald-50/40 rounded-3xl border border-tealmed-200/80 p-6 sm:p-8 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-tealmed-100/80 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-tealmed-600 text-white flex items-center justify-center shadow-md shadow-tealmed-600/20">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-extrabold text-slate-900">AI Patient Summary</h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-tealmed-100 text-tealmed-900 border border-tealmed-200 uppercase tracking-wider">
+                      AI Generated
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    {summaryData?.generated_at ? (
+                      <>Updated: {new Date(summaryData.generated_at).toLocaleString()}{summaryData.cached ? ' (Cached)' : ''}</>
+                    ) : (
+                      'Synthesized clinical overview'
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  const primaryId = patientProfile?.patient_id || patientId;
+                  if (primaryId) fetchSummary(primaryId);
+                }}
+                disabled={summaryLoading}
+                className="inline-flex items-center gap-2 text-xs font-bold text-tealmed-800 bg-white hover:bg-tealmed-50 px-3.5 py-2 rounded-2xl border border-tealmed-200 shadow-2xs transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-tealmed-700 ${summaryLoading ? 'animate-spin' : ''}`} />
+                {summaryLoading ? 'Refreshing...' : 'Refresh Summary'}
+              </button>
+            </div>
+
+            {summaryLoading && !summaryData ? (
+              <div className="p-8 text-center text-slate-500 flex flex-col items-center gap-2">
+                <div className="w-6 h-6 border-2 border-tealmed-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-xs font-semibold">Synthesizing clinical summary...</span>
+              </div>
+            ) : summaryError ? (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center justify-between font-medium">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  <span>{summaryError}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    const primaryId = patientProfile?.patient_id || patientId;
+                    if (primaryId) fetchSummary(primaryId);
+                  }}
+                  className="px-3 py-1 bg-white border border-rose-200 text-rose-700 rounded-xl text-xs font-bold hover:bg-rose-100/50"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : summaryData?.summary ? (
+              <div className="bg-white/80 p-6 rounded-2xl border border-tealmed-100/70 shadow-2xs">
+                <MarkdownRenderer content={summaryData.summary} />
+              </div>
+            ) : (
+              <div className="p-6 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500">
+                Not available. No clinical summary generated yet.
+              </div>
+            )}
+          </div>
 
           {/* Appointment History */}
           <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">

@@ -61,17 +61,58 @@ async def search_doctors(specialty: Optional[str] = None, hospital_name: Optiona
 
     return await run_in_threadpool(_search)
 
+
+@tool
+async def get_hospital_info(hospital_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get hospital facility information — address, contact info, visiting hours, and
+    the list of departments available — for general Q&A about the hospital itself
+    (location, timings, what departments exist). Use search_doctors instead when the
+    question is about finding a specific doctor.
+
+    NOTE: field names below (address/phone/visiting_hours) are guesses based on
+    common schema conventions — I have not seen your actual `hospitals` table
+    columns. Adjust the `.get(...)` keys to match your real column names before
+    relying on this."""
+    def _fetch():
+        hospitals = SupabaseService.get_records("hospitals")
+        departments = SupabaseService.get_records("departments")
+
+        results = []
+        for h in hospitals:
+            name = h.get("name") or h.get("hospital_name", "")
+            if hospital_name and hospital_name.lower() not in name.lower():
+                continue
+
+            h_departments = [
+                d.get("name") for d in departments
+                if d.get("hospital_id") == h.get("id") and d.get("name")
+            ]
+
+            results.append({
+                "id": h.get("id"),
+                "name": name,
+                "address": h.get("address") or h.get("location"),
+                "phone": h.get("phone") or h.get("contact_number"),
+                "visiting_hours": h.get("visiting_hours") or h.get("hours"),
+                "departments": h_departments
+            })
+        return results
+
+    return await run_in_threadpool(_fetch)
+
+
 @tool
 async def check_availability(doctor_id: str, date: str) -> List[Dict[str, Any]]:
     """Check available time slots for a doctor on a specific date (YYYY-MM-DD). Use
     a doctor_id you got from search_doctors — never one asked directly from the user."""
     return await run_in_threadpool(ScheduleService.get_doctor_available_slots, doctor_id, date)
 
+
 @tool
 async def generate_mock_payment(amount_context: str) -> Dict[str, Any]:
     """Generates a mock payment reference, QR code image, stores it in Supabase medical-records bucket, and returns signed URL."""
     def _gen_payment():
-        payment_reference = f"MOCK-{uuid.uuid4().hex[:8]}"  # was uuid4() — undefined, only `uuid` module was imported
+        payment_reference = f"MOCK-{uuid.uuid4().hex[:8]}"
         storage_path = f"payments/{payment_reference}.png"
 
         qr_img = qrcode.make(f"HEALTHPULSE_PAYMENT:{payment_reference}:{amount_context}")
@@ -103,6 +144,7 @@ async def generate_mock_payment(amount_context: str) -> Dict[str, Any]:
         }
 
     return await run_in_threadpool(_gen_payment)
+
 
 @tool
 async def book_appointment(
@@ -157,6 +199,7 @@ async def book_appointment(
         return {"success": success, "message": msg, "appointment": app_data}
 
     return await run_in_threadpool(_book)
+
 
 @tool
 async def save_intake_note(

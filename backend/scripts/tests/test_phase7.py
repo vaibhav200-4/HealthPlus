@@ -40,11 +40,13 @@ def test_phase7():
     headers = {"Authorization": f"Bearer {token}"}
 
     # Ensure an intake note exists for patient
-    asyncio.run(save_intake_note.ainvoke({
+    SupabaseService.insert_record("patient_intake_notes", {
+        "id": str(uuid.uuid4()),
         "patient_id": test_user_id,
         "content": "Patient reports mild chest tightness after exercise.",
-        "structured_data": {"symptom": "chest tightness", "trigger": "exercise"}
-    }))
+        "structured_data": {"symptom": "chest tightness", "trigger": "exercise"},
+        "source": "test"
+    })
 
     # First call to summary endpoint -> should generate summary (cached: False)
     print("Calling GET /api/medical-records/patient/{patient_id}/summary (Call 1)...")
@@ -62,6 +64,27 @@ def test_phase7():
     assert body2.get("cached") is True, f"Expected cached=True on second call, got {body2.get('cached')}"
     assert body1["summary"] == body2["summary"], "Cached summary text did not match initial summary!"
     print(f"Call 2 response verified: cached={body2.get('cached')}")
+
+    # 3. Add a new chat message for patient to test cache invalidation
+    from datetime import datetime, timezone
+    new_chat_msg = {
+        "id": str(uuid.uuid4()),
+        "user_id": test_user_id,
+        "channel": "web",
+        "session_id": f"session_{test_user_id[:8]}",
+        "role": "user",
+        "message": "Patient reports new onset of mild headache starting this morning.",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    SupabaseService.insert_record("chat_messages", new_chat_msg)
+
+    # Third call to summary endpoint -> should detect staleness from new chat message and regenerate (cached: False)
+    print("Calling GET /api/medical-records/patient/{patient_id}/summary after new chat message (Call 3)...")
+    res3 = client.get(f"/api/medical-records/patient/{test_user_id}/summary", headers=headers)
+    assert res3.status_code == 200, f"Expected 200, got {res3.status_code}: {res3.text}"
+    body3 = res3.json()
+    assert body3.get("cached") is False, f"Expected cached=False on third call after new chat message, got {body3.get('cached')}"
+    print(f"Call 3 response verified: cached={body3.get('cached')}, regenerated summary successfully!")
 
     print("Phase 7 Acceptance Test PASSED successfully!")
 

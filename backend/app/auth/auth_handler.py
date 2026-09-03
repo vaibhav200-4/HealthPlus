@@ -272,47 +272,6 @@ def create_n8n_context_token(
     }
     return jwt.encode(payload, settings.N8N_JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
-def verify_n8n_tool_context(
-    x_n8n_token: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None)
-) -> Dict[str, Any]:
-    """
-    FastAPI dependency that every n8n AI tool endpoint uses to cryptographically verify context.
-    Derives user_id, role, and hospital_id strictly from this verified signed JWT,
-    never relying on LLM-generated text arguments.
-    """
-    token = x_n8n_token
-    if not token and authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ")[1]
-
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing signed n8n AI context token (X-N8n-Token header required)"
-        )
-
-    try:
-        payload = jwt.decode(token, settings.N8N_JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-        return {
-            "user_id": payload.get("user_id"),
-            "role": payload.get("role", "patient"),
-            "hospital_id": payload.get("hospital_id"),
-            "session_id": payload.get("session_id"),
-            "is_super_admin": payload.get("role") == "super_admin"
-        }
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="n8n AI context token has expired"
-        )
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid n8n AI context token"
-        )
-
-verify_n8n_context_token = verify_n8n_tool_context
-
 
 def create_voice_service_token(
     user_id: str,

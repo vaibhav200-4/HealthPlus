@@ -55,14 +55,41 @@ class BookingService:
 
             # Re-check slot availability from schedule service
             available_slots = ScheduleService.get_doctor_available_slots(doctor_id, date)
+
+            def _norm_time(t: str) -> str:
+                t = (t or "").strip()
+                if t and not ("AM" in t.upper() or "PM" in t.upper()):
+                    try:
+                        parts = t.split(":")
+                        h = int(parts[0])
+                        m = parts[1] if len(parts) > 1 else "00"
+                        if h < 8 or h == 12:
+                            return f"{h:02d}:{m} PM"
+                        else:
+                            return f"{h:02d}:{m} AM"
+                    except Exception:
+                        pass
+                return t
+
+            norm_req_start = _norm_time(start_time)
+            matching_slot = next((
+                s for s in available_slots 
+                if _norm_time(s["start_time"]) == norm_req_start or s["start_time"] == start_time
+            ), None)
+
+            if matching_slot:
+                start_time = matching_slot["start_time"]
+                if not end_time or end_time.strip() == "":
+                    end_time = matching_slot.get("end_time", "")
+
             slot_is_valid = any(
-                s["start_time"] == start_time and s["available"]
+                (_norm_time(s["start_time"]) == norm_req_start or s["start_time"] == start_time) and s["available"]
                 for s in available_slots
             )
 
             if not slot_is_valid and len(available_slots) > 0:
                 has_conflict = any(
-                    s["start_time"] == start_time and not s["available"]
+                    (_norm_time(s["start_time"]) == norm_req_start or s["start_time"] == start_time) and not s["available"]
                     for s in available_slots
                 )
                 if has_conflict:

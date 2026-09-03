@@ -25,7 +25,9 @@ _LOCAL_STORE: Dict[str, List[Dict[str, Any]]] = {
     "chat_sessions": [],
     "telegram_accounts": [],
     "notifications": [],
-    "audit_logs": []
+    "audit_logs": [],
+    "patient_summaries": [],
+    "patient_intake_notes": []
 }
 
 _supabase_client = None
