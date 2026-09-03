@@ -39,7 +39,8 @@ class MistralExtractor:
         save_json: bool = True,
         json_output_dir: str | Path = "data/ocr_output",
     ):
-        api_key = api_key or os.getenv("MISTRAL_API_KEY")
+        from app.config import settings
+        api_key = api_key or settings.MISTRAL_API_KEY
 
         if not api_key:
             raise ValueError(

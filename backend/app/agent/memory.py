@@ -25,7 +25,8 @@ async def get_checkpointer() -> Any:
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
             from psycopg_pool import AsyncConnectionPool
 
-            _pool = AsyncConnectionPool(conninfo=db_url, max_size=10, kwargs={"autocommit": True})
+            _pool = AsyncConnectionPool(conninfo=db_url, max_size=10, open=False, kwargs={"autocommit": True})
+            await _pool.open()
             _checkpointer = AsyncPostgresSaver(conn=_pool)
             logger.info("LangGraph AsyncPostgresSaver checkpointer initialized.")
             return _checkpointer
@@ -39,6 +40,50 @@ async def get_checkpointer() -> Any:
     _checkpointer = MemorySaver()
     return _checkpointer
 
+async def repair_checkpointer_storage():
+    """Scans and repairs any stored checkpointer state records with null/invalid message content in Postgres tables."""
+    global _pool
+    if not _pool:
+        logger.info("[MEMORY REPAIR] MemorySaver in use; skipping Postgres checkpointer repair pass.")
+        return
+    try:
+        repaired_count = 0
+        async with _pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_name IN ('checkpoints', 'checkpoint_blobs', 'checkpoint_writes')
+                """)
+                tables = [r[0] for r in await cur.fetchall()]
+
+                if "checkpoints" in tables:
+                    await cur.execute("""
+                        UPDATE checkpoints 
+                        SET checkpoint = REPLACE(REPLACE(checkpoint::text, '"content": null', '"content": "[]"'), '"content":null', '"content": "[]"')::jsonb 
+                        WHERE checkpoint::text LIKE '%"content": null%' OR checkpoint::text LIKE '%"content":null%';
+                    """)
+                    repaired_count += cur.rowcount if cur.rowcount > 0 else 0
+
+                if "checkpoint_writes" in tables:
+                    await cur.execute("""
+                        UPDATE checkpoint_writes 
+                        SET blob = decode(REPLACE(REPLACE(encode(blob, 'escape'), '"content": null', '"content": "[]"'), '"content":null', '"content": "[]"'), 'escape') 
+                        WHERE encode(blob, 'escape') LIKE '%"content": null%' OR encode(blob, 'escape') LIKE '%"content":null%';
+                    """)
+                    repaired_count += cur.rowcount if cur.rowcount > 0 else 0
+
+                if "checkpoint_blobs" in tables:
+                    await cur.execute("""
+                        UPDATE checkpoint_blobs 
+                        SET blob = decode(REPLACE(REPLACE(encode(blob, 'escape'), '"content": null', '"content": "[]"'), '"content":null', '"content": "[]"'), 'escape') 
+                        WHERE encode(blob, 'escape') LIKE '%"content": null%' OR encode(blob, 'escape') LIKE '%"content":null%';
+                    """)
+                    repaired_count += cur.rowcount if cur.rowcount > 0 else 0
+
+                logger.info(f"[MEMORY REPAIR] Checkpointer repair pass completed cleanly. (Repaired {repaired_count} records)")
+    except Exception as e:
+        logger.warning(f"[MEMORY REPAIR] Checkpointer repair pass finished with notice: {e}")
+
 async def setup_checkpointer():
     cp = await get_checkpointer()
     if hasattr(cp, "setup"):
@@ -47,3 +92,5 @@ async def setup_checkpointer():
             logger.info("LangGraph checkpointer setup completed.")
         except Exception as e:
             logger.error(f"Error during checkpointer setup: {e}")
+
+    await repair_checkpointer_storage()

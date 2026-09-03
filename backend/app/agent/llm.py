@@ -10,9 +10,9 @@ def get_llm(provider: Optional[str] = None):
     target_provider = (provider or settings.LLM_PROVIDER or "gemini").lower()
     
     # Smart fallback if selected provider key is missing but alternative exists
-    groq_key   = settings.GROQ_API_KEY or os.getenv("GROQ_API_KEY", "")
-    nvidia_key = settings.NVIDIA_API_KEY or os.getenv("NVIDIA_API_KEY", "")
-    google_key = settings.GOOGLE_API_KEY or os.getenv("GOOGLE_API_KEY", "")
+    groq_key   = getattr(settings, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
+    nvidia_key = getattr(settings, "NVIDIA_API_KEY", "") or os.getenv("NVIDIA_API_KEY", "")
+    google_key = getattr(settings, "GOOGLE_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
     
     if not provider and target_provider == "nvidia" and not nvidia_key and google_key:
         target_provider = "gemini"

@@ -145,6 +145,121 @@ def log_telegram_message(
         "channel": "telegram"
     }
 
+async def _send_telegram_text(bot_token: str, chat_id: str, text: str) -> None:
+    if not (bot_token and chat_id and text):
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={"chat_id": chat_id, "text": text}
+            )
+    except Exception:
+        logger.error("Failed to send Telegram message to chat %s", chat_id, exc_info=True)
+
+async def _dispatch_agent_turn_to_telegram(
+    telegram_id: str,
+    chat_id: str,
+    user_id: str,
+    thread_id: str,
+    text: str,
+    bot_token: Optional[str]
+) -> None:
+    """Dispatches a user message turn to the agent graph, logs turns to chat_messages,
+    and sends the response back to Telegram via Bot API."""
+    if not text:
+        return
+
+    # 1. Log user message
+    _log_telegram_message_core(telegram_id, thread_id, "user", text)
+
+    # 2. Invoke LangGraph agent
+    try:
+        from langchain_core.messages import HumanMessage
+        from app.agent.graph import get_agent_graph
+
+        agent_graph = await get_agent_graph()
+        config = {"configurable": {"thread_id": thread_id}}
+
+        # Capture how many messages exist BEFORE this turn, so the QR-code scan
+        # below only looks at what this turn actually produced. Without this,
+        # `res["messages"]` is the full accumulated thread history (add_messages
+        # never truncates it) and a QR code from any earlier booking in this
+        # thread would match and get resent on every subsequent turn.
+        prior_count = 0
+        try:
+            prior_snapshot = await agent_graph.aget_state(config)
+            if prior_snapshot and prior_snapshot.values:
+                prior_count = len(prior_snapshot.values.get("messages", []))
+        except Exception:
+            logger.warning("Could not read prior state for thread %s; QR scan will use full history", thread_id, exc_info=True)
+
+        agent_input = {
+            "messages": [HumanMessage(content=text)],
+            "user_id": user_id,
+            "channel": "telegram",
+            "thread_id": thread_id
+        }
+
+        res = await agent_graph.ainvoke(agent_input, config=config)
+        messages = res.get("messages", [])
+        new_messages = messages[prior_count:] if prior_count else messages
+
+        reply_text = ""
+        qr_url = None
+
+        def _extract_text(content: Any) -> str:
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts = []
+                for p in content:
+                    if isinstance(p, str):
+                        parts.append(p)
+                    elif isinstance(p, dict) and p.get("type") == "text":
+                        parts.append(p.get("text", ""))
+                return "\n".join(parts)
+            return str(content) if content is not None else ""
+
+        if messages:
+            reply_text = _extract_text(getattr(messages[-1], "content", ""))
+
+        # Scoped to this turn's new messages only — see prior_count comment above.
+        for m in new_messages:
+            m_str = _extract_text(getattr(m, "content", ""))
+            if "qr_code_url" in m_str:
+                try:
+                    import json
+                    parsed = json.loads(m_str)
+                    if isinstance(parsed, dict) and parsed.get("qr_code_url"):
+                        qr_url = parsed["qr_code_url"]
+                except Exception:
+                    pass
+
+        # 3. Log assistant turn
+        if reply_text:
+            _log_telegram_message_core(telegram_id, thread_id, "assistant", reply_text)
+
+        # 4. Dispatch reply via Telegram Bot API
+        if bot_token and chat_id:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                if qr_url:
+                    await client.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        json={"chat_id": chat_id, "photo": qr_url, "caption": reply_text or "Payment Details"}
+                    )
+                elif reply_text:
+                    await client.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": chat_id, "text": reply_text}
+                    )
+    except Exception as e:
+        logger.error(f"Error processing Telegram message in background: {e}", exc_info=True)
+        # Without this, any agent-invocation failure (LLM error, malformed
+        # structured output, etc.) left the patient with total silence — no error,
+        # no reply, nothing. Now they at least know to retry.
+        await _send_telegram_text(bot_token, chat_id, "Sorry, something went wrong on my end. Please try again in a moment.")
+
 async def _process_telegram_update_background(update: Dict[str, Any]):
     """Background task processing Telegram updates asynchronously after fast 200 OK ack."""
     bot_token = settings.TELEGRAM_BOT_TOKEN
@@ -170,100 +285,94 @@ async def _process_telegram_update_background(update: Dict[str, Any]):
     document = msg.get("document") or (msg.get("photo")[-1] if msg.get("photo") else None)
     if document and bot_token:
         file_id = document.get("file_id")
-        if file_id:
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    file_info_res = await client.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}")
-                    if file_info_res.status_code == 200:
-                        file_path = file_info_res.json().get("result", {}).get("file_path")
-                        if file_path:
-                            file_bytes_res = await client.get(f"https://api.telegram.org/file/bot{bot_token}/{file_path}")
-                            if file_bytes_res.status_code == 200:
-                                filename = file_path.split("/")[-1]
-                                files = {"file": (filename, file_bytes_res.content)}
-                                data = {
-                                    "patient_identifier": user_id,
-                                    "uploaded_by": "patient",
-                                    "title": f"Telegram Upload {filename}"
-                                }
-                                headers = {"X-Telegram-Secret": settings.TELEGRAM_WEBHOOK_SECRET}
-                                from app.api.medical_records import upload_medical_record
-                                # Internal call simulation or local upload
-            except Exception as e:
-                logger.error(f"Error handling Telegram document upload: {e}")
+        file_size = document.get("file_size") or 0
 
-    if not text:
+        # Pre-check file size <= 15MB
+        if file_size > 15 * 1024 * 1024:
+            await _send_telegram_text(bot_token, chat_id, "File size exceeds maximum limit of 15MB. Please upload a smaller file.")
+            return
+
+        # Derive filename and check extension against ALLOWED_EXTENSIONS
+        raw_filename = document.get("file_name") or ("photo.jpg" if msg.get("photo") else "document.pdf")
+        ext = raw_filename.split(".")[-1].lower() if "." in raw_filename else ""
+
+        mime_type = (document.get("mime_type") or "").lower()
+        from app.api.medical_records import ALLOWED_EXTENSIONS, MIME_TO_EXT, upload_medical_record
+        if ext not in ALLOWED_EXTENSIONS and mime_type in MIME_TO_EXT:
+            ext = MIME_TO_EXT[mime_type]
+
+        if ext not in ALLOWED_EXTENSIONS:
+            await _send_telegram_text(bot_token, chat_id, f"Invalid file format '.{ext}'. Allowed formats: PDF, JPG, PNG, WEBP.")
+            return
+
+        if not file_id:
+            await _send_telegram_text(bot_token, chat_id, "Sorry, I couldn't read that file. Please try sending it again.")
+            return
+
+        # Download file bytes from Telegram Bot API. `downloaded` tracks whether we
+        # actually got usable bytes — previously, a non-200 from either Telegram
+        # call fell through with NO return and NO message to the user: the upload
+        # silently vanished and the code below re-processed the message as a plain
+        # text turn using just the caption (or nothing at all).
+        downloaded = False
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                file_info_res = await client.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}")
+                file_path = None
+                if file_info_res.status_code == 200:
+                    file_path = file_info_res.json().get("result", {}).get("file_path")
+
+                if file_path:
+                    file_bytes_res = await client.get(f"https://api.telegram.org/file/bot{bot_token}/{file_path}")
+                    if file_bytes_res.status_code == 200:
+                        downloaded = True
+                        file_bytes = file_bytes_res.content
+                        title = document.get("file_name") or ("Telegram Photo" if msg.get("photo") else "Telegram Document")
+
+                        import io
+                        from fastapi import UploadFile
+                        upload_file_obj = UploadFile(filename=raw_filename, file=io.BytesIO(file_bytes))
+
+                        await upload_medical_record(
+                            file=upload_file_obj,
+                            patient_identifier=user_id,
+                            uploaded_by="patient",
+                            session_id=thread_id,
+                            title=title,
+                            from_chat=True,
+                            x_telegram_secret=settings.TELEGRAM_WEBHOOK_SECRET
+                        )
+
+                        caption = msg.get("caption") or ""
+                        trigger_text = f"[Uploaded document: {title}]"
+                        if caption:
+                            trigger_text += f"\nCaption: {caption}"
+
+                        await _dispatch_agent_turn_to_telegram(
+                            telegram_id=telegram_id,
+                            chat_id=chat_id,
+                            user_id=user_id,
+                            thread_id=thread_id,
+                            text=trigger_text,
+                            bot_token=bot_token
+                        )
+        except Exception as e:
+            logger.error(f"Error handling Telegram document upload: {e}", exc_info=True)
+
+        if not downloaded:
+            await _send_telegram_text(bot_token, chat_id, "Sorry, I ran into an error processing your document upload. Please try again.")
         return
 
-    # 3. Log user message
-    _log_telegram_message_core(telegram_id, thread_id, "user", text)
-
-    # 4. Invoke LangGraph agent
-    try:
-        from langchain_core.messages import HumanMessage
-        from app.agent.graph import get_agent_graph
-
-        agent_graph = await get_agent_graph()
-        config = {"configurable": {"thread_id": thread_id}}
-        agent_input = {
-            "messages": [HumanMessage(content=text)],
-            "user_id": user_id,
-            "channel": "telegram",
-            "thread_id": thread_id
-        }
-
-        res = await agent_graph.ainvoke(agent_input, config=config)
-        messages = res.get("messages", [])
-        
-        reply_text = ""
-        qr_url = None
-
-        def _extract_text(content: Any) -> str:
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                parts = []
-                for p in content:
-                    if isinstance(p, str):
-                        parts.append(p)
-                    elif isinstance(p, dict) and p.get("type") == "text":
-                        parts.append(p.get("text", ""))
-                return "\n".join(parts)
-            return str(content) if content is not None else ""
-
-        if messages:
-            reply_text = _extract_text(getattr(messages[-1], "content", ""))
-
-        for m in messages:
-            m_str = _extract_text(getattr(m, "content", ""))
-            if "qr_code_url" in m_str:
-                try:
-                    import json
-                    parsed = json.loads(m_str)
-                    if isinstance(parsed, dict) and parsed.get("qr_code_url"):
-                        qr_url = parsed["qr_code_url"]
-                except Exception:
-                    pass
-
-        # 5. Log assistant turn
-        if reply_text:
-            _log_telegram_message_core(telegram_id, thread_id, "assistant", reply_text)
-
-        # 6. Dispatch reply via Telegram Bot API
-        if bot_token and chat_id:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                if qr_url:
-                    await client.post(
-                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                        json={"chat_id": chat_id, "photo": qr_url, "caption": reply_text or "Payment Details"}
-                    )
-                elif reply_text:
-                    await client.post(
-                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                        json={"chat_id": chat_id, "text": reply_text}
-                    )
-    except Exception as e:
-        logger.error(f"Error processing Telegram message in background: {e}")
+    # 3. Text-only message turn
+    if text:
+        await _dispatch_agent_turn_to_telegram(
+            telegram_id=telegram_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            text=text,
+            bot_token=bot_token
+        )
 
 @router.post("/webhook")
 async def telegram_webhook(

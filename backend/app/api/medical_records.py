@@ -1,6 +1,7 @@
 # api/medical_records.py
 import uuid
 import time
+import logging
 import jwt
 from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, Form, Header
 from typing import List, Optional, Dict, Any
@@ -10,6 +11,7 @@ from app.auth.auth_handler import get_identity_context, get_doctor_user
 from app.config import settings
 
 router = APIRouter(prefix="/api/medical-records", tags=["Medical Records"])
+logger = logging.getLogger("hospital_app.api.medical_records")
 
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'webp'}
 MAX_FILE_SIZE = 15 * 1024 * 1024  # 15 MB
@@ -42,11 +44,57 @@ def generate_signed_url(file_path: Optional[str]) -> Optional[str]:
     signed_token = jwt.encode(token_payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     return f"/api/medical-records/file?path={file_path}&token={signed_token}"
 
-from app.services.patient_service import PatientService
+from app.services.patient_service import PatientService, is_valid_uuid
 
 def resolve_patient_id(patient_identifier: str) -> str:
     p_rec = PatientService.resolve_patient(patient_identifier)
     return p_rec.get("id", "")
+
+
+async def _notify_agent_of_upload(session_id: Optional[str], record_type: str, title: str) -> None:
+    """Inject a system note into the agent's persisted conversation state so that on
+    the NEXT turn in this thread, the agent is aware an upload happened and can
+    acknowledge it naturally instead of the frontend having to hardcode a bot reply.
+
+    ASSUMPTIONS I have not verified against your code:
+    - `session_id` here is the same value used as `thread_id` in AgentState /
+      LangGraph's `configurable.thread_id` for this patient's chat thread. If your
+      chat.py / telegram_webhook.py builds thread_id differently (e.g. prefixed,
+      or derived from patient_id instead of session_id), fix the `thread_id` line
+      below to match.
+    - `agent.aupdate_state` is LangGraph's standard public API for writing into a
+      compiled graph's checkpointed state without running a full turn — this should
+      work with any checkpointer you're using, but I have not run it against your
+      actual `app/agent/memory.py` checkpointer.
+    - Uploads with no session_id (e.g. manual doctor/admin upload, or a patient
+      uploading outside an active chat) simply skip this — there's no thread to
+      notify.
+    """
+    if not session_id:
+        return
+    try:
+        # Imported here, not at module top, because app.agent.graph -> app.agent.tools
+        # -> app.api.medical_records (this file) would otherwise be a circular import.
+        from app.agent.graph import get_agent_graph
+        from langchain_core.messages import SystemMessage
+
+        agent = await get_agent_graph()
+        config = {"configurable": {"thread_id": session_id}}
+        await agent.aupdate_state(
+            config,
+            {
+                "messages": [SystemMessage(content=(
+                    f"[Upload event] The patient just uploaded a {record_type} document titled "
+                    f"'{title}'. In your next reply, briefly acknowledge you received it and "
+                    f"mention their doctor will be able to view it — do not ask them to re-upload "
+                    f"or describe the file contents."
+                ))]
+            },
+            as_node="router"
+        )
+    except Exception:
+        logger.warning("Failed to notify agent of upload for session %s", session_id, exc_info=True)
+
 
 @router.post("/upload", response_model=MedicalRecordBase)
 async def upload_medical_record(
@@ -58,10 +106,24 @@ async def upload_medical_record(
     record_type: Optional[str] = Form(None),
     title: str = Form(...),
     description: Optional[str] = Form(None),
+    from_chat: bool = Form(False),
     x_telegram_secret: Optional[str] = Header(None),
     x_n8n_secret: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None)
 ):
+    def _u(v):
+        return v.default if hasattr(v, "default") else v
+
+    uploaded_by = _u(uploaded_by)
+    doctor_id = _u(doctor_id)
+    session_id = _u(session_id)
+    record_type = _u(record_type)
+    description = _u(description)
+    from_chat = _u(from_chat)
+    x_telegram_secret = _u(x_telegram_secret)
+    x_n8n_secret = _u(x_n8n_secret)
+    authorization = _u(authorization)
+
     # TASK 1: Strict Auth Lockdown
     # n8n / Telegram server-to-server calls MUST provide X-Telegram-Secret matching TELEGRAM_WEBHOOK_SECRET.
     # n8n_token Bearer tokens are explicitly disabled for this endpoint to prevent false 401s on upstream context failures.
@@ -141,11 +203,17 @@ async def upload_medical_record(
         except Exception:
             pass
 
+    session_id_for_db = None
+    if session_id and is_valid_uuid(session_id):
+        sess = SupabaseService.get_record_by_id("sessions", session_id)
+        if sess:
+            session_id_for_db = session_id
+
     record_data = {
         "id": rec_id,
         "patient_id": target_patient_id,
         "doctor_id": doctor_id,
-        "session_id": session_id,
+        "session_id": session_id_for_db,
         "record_type": final_record_type,
         "title": title,
         "description": description or "",
@@ -157,6 +225,14 @@ async def upload_medical_record(
 
     created = SupabaseService.insert_record("medical_records", record_data)
     signed_url = generate_signed_url(storage_path)
+
+    # Only notify the agent when the client explicitly says this came from an
+    # active chat session — NOT inferred from uploaded_by/session_id alone, since
+    # the manual upload form may also send a session_id without this being a
+    # chat-originated upload. The chat-attach-button flow should send
+    # from_chat=true; the manual form should omit it (defaults to false).
+    if from_chat and uploaded_by == "patient":
+        await _notify_agent_of_upload(session_id, final_record_type, title)
 
     p_rec = SupabaseService.get_record_by_id("patients", target_patient_id)
     d_rec = SupabaseService.get_record_by_id("doctors", doctor_id) if doctor_id else None
