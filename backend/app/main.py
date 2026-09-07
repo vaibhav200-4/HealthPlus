@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, ai_tools, location, voice
+from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, location, voice
 import uvicorn
 from app.database.supabase_client import SupabaseService
 from app.agent.memory import setup_checkpointer
@@ -60,7 +60,6 @@ app.include_router(reviews.router)
 app.include_router(chat.router)
 app.include_router(telegram_webhook.router)
 app.include_router(admin.router)
-app.include_router(ai_tools.router)
 app.include_router(voice.router)
 
 @app.get("/health")

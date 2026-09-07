@@ -142,9 +142,23 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       const res = await fetch('/api/voice/session', { method: 'POST' });
       const data = await res.json();
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}${data.ws_url || `/api/voice/ws/${data.session_id}`}`;
+      const path = data.ws_url || `/api/voice/ws/${data.session_id}`;
+      let wsUrl = '';
+      const apiUrl = import.meta.env.VITE_API_URL;
+      
+      if (apiUrl && !apiUrl.includes('localhost:5173')) {
+        try {
+          const urlObj = new URL(apiUrl);
+          const wsProtocol = urlObj.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${wsProtocol}//${urlObj.host}${path}`;
+        } catch (e) {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${protocol}//${window.location.host}${path}`;
+        }
+      } else {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${window.location.host}${path}`;
+      }
 
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;

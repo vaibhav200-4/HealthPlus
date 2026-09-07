@@ -69,7 +69,7 @@ class GroqLLM:
         spec_list_str = ", ".join(specs) if specs else "Cardiology, Gastroenterology, Orthopaedics, Gynaecology, General Medicine, Dermatology"
 
         system_prompt = (
-            "You are Aradhya Mishra, a hospital appointment assistant.\n"
+            "You are Aradhya , a hospital appointment assistant.\n"
             "Help ONLY with: hospitals, doctors, specialties, fees, schedules, "
             "availability, appointments (booking/cancellation/check).\n"
             "For any unrelated question reply with intent=unrelated.\n\n"

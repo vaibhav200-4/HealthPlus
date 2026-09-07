@@ -15,6 +15,24 @@ from app.agent.graph import get_agent_graph, _fallback_classify_stage, _normaliz
 from app.agent.tools import search_doctors, check_availability
 from app.database.supabase_client import SupabaseService
 
+# Ensure seed data exists in memory store for testing
+SupabaseService.insert_record("hospitals", {
+    "id": "HOSP-002",
+    "name": "Test Hospital",
+    "hospital_name": "Test Hospital",
+    "city": "Mumbai",
+    "street": "Test Street"
+})
+
+SupabaseService.insert_record("doctors", {
+    "id": "DOC-002",
+    "name": "Dr. Riya Kapoor",
+    "specialization": "Dermatology",
+    "consultation_fee": 500,
+    "availability": "Mon-Sat 10:00 AM - 05:00 PM",
+    "hospital_id": "HOSP-002"
+})
+
 
 async def test_router_fallback():
     print("\n--- TEST 1: Router Fallback ---", flush=True)
