@@ -8,22 +8,10 @@ from app.auth.auth_handler import get_identity_context, require_doctor
 
 router = APIRouter(prefix="/api/sessions", tags=["Medical Sessions"])
 
+from app.services.patient_service import PatientService
+
 def get_patient_by_profile_or_id(patient_ref: str) -> Optional[Dict[str, Any]]:
-    # Try finding patient by patients.id or profile_id
-    pts = SupabaseService.get_records("patients", {"id": patient_ref})
-    if pts:
-        return pts[0]
-    pts = SupabaseService.get_records("patients", {"profile_id": patient_ref})
-    if pts:
-        return pts[0]
-    # Auto-create patient record if not exists
-    p_code = f"PT-{len(SupabaseService.get_records('patients')) + 1:06d}"
-    rec = {
-        "id": str(uuid.uuid4()),
-        "profile_id": patient_ref,
-        "patient_code": p_code
-    }
-    return SupabaseService.insert_record("patients", rec)
+    return PatientService.resolve_patient(patient_ref)
 
 @router.post("", response_model=SessionBase)
 def create_session(data: SessionCreate, doctor_info: dict = Depends(require_doctor)):

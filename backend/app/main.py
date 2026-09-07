@@ -1,18 +1,36 @@
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, ai_tools, location, voice
-
+import uvicorn
 from app.database.supabase_client import SupabaseService
+from app.agent.memory import setup_checkpointer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hospital_app")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing Hospital System Backend...")
+    is_active = SupabaseService.is_supabase_active()
+    if settings.ENVIRONMENT.lower() == "production" and not is_active:
+        logger.critical("CRITICAL: Application set to production mode but Supabase database credentials are missing or invalid!")
+        raise RuntimeError("CRITICAL: Production startup failed! Active Supabase database connection is required in production.")
+    elif not is_active:
+        logger.warning("WARNING: Running in DEVELOPMENT mode with in-memory local database fallback.")
+
+    await setup_checkpointer()
+    yield
+
+
 app = FastAPI(
     title="Hospital Appointment System API",
-    description="Full-stack FastAPI backend integrated with n8n AI agent workflow, Supabase, and Pinecone",
-    version="1.0.0"
+    description="Full-stack FastAPI backend integrated with LangGraph in-process agent, Supabase, and Pinecone",
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS explicitly for configured origins and Vercel domains
@@ -45,25 +63,19 @@ app.include_router(admin.router)
 app.include_router(ai_tools.router)
 app.include_router(voice.router)
 
-@app.on_event("startup")
-def on_startup():
-    logger.info("Initializing Hospital System Backend...")
-    is_active = SupabaseService.is_supabase_active()
-    if settings.ENVIRONMENT.lower() == "production" and not is_active:
-        logger.critical("CRITICAL: Application set to production mode but Supabase database credentials are missing or invalid!")
-        raise RuntimeError("CRITICAL: Production startup failed! Active Supabase database connection is required in production.")
-    elif not is_active:
-        logger.warning("WARNING: Running in DEVELOPMENT mode with in-memory local database fallback.")
-
 @app.get("/health")
 def health_check():
     return {
         "status": "healthy",
-        "n8n_webhook_configured": bool(settings.N8N_WEBHOOK_URL),
+        "service": "LangGraph Agent Hospital Assistant",
         "supabase_configured": bool(settings.SUPABASE_URL and "your-supabase" not in settings.SUPABASE_URL),
         "pinecone_configured": bool(settings.PINECONE_API_KEY)
     }
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )

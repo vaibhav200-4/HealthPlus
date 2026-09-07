@@ -2,7 +2,11 @@ import uuid
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from app.schemas.user_schema import UserRegister, UserLogin, AuthResponse, UserProfile, LinkTelegramRequest, PatientProfileUpdate
-from app.auth.auth_handler import hash_password, verify_password, create_access_token, get_current_user, auth_rate_limiter
+from app.auth.auth_handler import (
+    hash_password, verify_password, create_access_token, get_current_user,
+    auth_rate_limiter, create_voice_service_token, verify_voice_service_token,
+    verify_voice_bootstrap_secret, find_or_create_caller_by_phone, normalize_phone_e164
+)
 from app.database.supabase_client import SupabaseService, get_supabase_client
 from app.config import settings
 
@@ -141,6 +145,46 @@ def login_user(data: UserLogin, request: Request = None):
 @router.get("/me", response_model=UserProfile)
 def get_current_user_profile(current_user: dict = Depends(get_current_user)):
     return build_user_profile_response(current_user)
+
+@router.post("/voice-token")
+def issue_voice_token(current_user: dict = Depends(get_current_user)):
+    """
+    Issues a short-lived Voice Service Token (X-Voice-Token) for the authenticated browser user.
+    Integrates existing HealthPulse JWT authentication to establish verified user identity.
+    """
+    user_id = current_user["id"]
+    role = current_user.get("role", "patient")
+    token = create_voice_service_token(user_id=user_id, role=role)
+    return {
+        "voice_token": token,
+        "user_id": user_id,
+        "expires_in": 900
+    }
+
+@router.post("/voice-token-by-phone")
+def issue_voice_token_by_phone(
+    payload: dict,
+    service_auth: bool = Depends(verify_voice_bootstrap_secret)
+):
+    """
+    Issues a short-lived Voice Service Token (X-Voice-Token) for a PSTN caller identified by phone.
+    Service-authenticated via X-Voice-Token service header.
+    Resolves or auto-creates the caller profile using Option (b) placeholder email format (f"{phone}@voice.local").
+    """
+    raw_phone = payload.get("phone")
+    if not raw_phone:
+        raise HTTPException(status_code=400, detail="Missing required 'phone' parameter")
+
+    profile = find_or_create_caller_by_phone(raw_phone)
+    user_id = profile["id"]
+    role = profile.get("role", "patient")
+    token = create_voice_service_token(user_id=user_id, role=role)
+    return {
+        "voice_token": token,
+        "user_id": user_id,
+        "phone": profile.get("phone"),
+        "expires_in": 900
+    }
 
 @router.put("/patient-profile", response_model=UserProfile)
 def update_patient_profile(data: PatientProfileUpdate, current_user: dict = Depends(get_current_user)):

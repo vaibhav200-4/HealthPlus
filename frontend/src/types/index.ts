@@ -167,6 +167,10 @@ export interface ChatMessage {
   message: string;
   telegram_id?: string;
   created_at?: string;
+  file_url?: string;
+  signed_file_url?: string;
+  file_type?: string;
+  title?: string;
 }
 
 export interface VectorSearchResult {

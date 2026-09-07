@@ -3,7 +3,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { ChatMessage } from '../types';
 import { EmptyState } from '../components/EmptyState';
-import { MessageSquare, Bot, User as UserIcon, Send, Smartphone, Globe, Link as LinkIcon } from 'lucide-react';
+import { MessageSquare, Bot, User as UserIcon, Send, Smartphone, Globe, Link as LinkIcon, FileText } from 'lucide-react';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
 export const ChatHistoryPage: React.FC = () => {
   const { user, linkTelegram } = useAuth();
@@ -128,7 +129,26 @@ export const ChatHistoryPage: React.FC = () => {
                     {msg.created_at ? new Date(msg.created_at).toLocaleString() : ''}
                   </span>
                 </div>
-                <div className="whitespace-pre-wrap">{msg.message}</div>
+                {msg.role === 'assistant' ? (
+                  <MarkdownRenderer content={msg.message} />
+                ) : (
+                  <div className="whitespace-pre-wrap">{msg.message}</div>
+                )}
+                {(msg.signed_file_url || msg.file_url) && (
+                  <div className="mt-2 pt-2 border-t border-slate-200/40">
+                    <a
+                      href={msg.signed_file_url || msg.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold underline ${
+                        msg.role === 'user' ? 'text-white' : 'text-medical-600'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      View Attachment ({msg.title || 'Medical Record'})
+                    </a>
+                  </div>
+                )}
               </div>
 
               {msg.role === 'user' && (
