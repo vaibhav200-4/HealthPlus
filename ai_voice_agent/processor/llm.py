@@ -64,6 +64,10 @@ class GroqLLM:
         pending = {k: v for k, v in state.items() if v is None}
         pending_str = ", ".join(pending.keys()) if pending else "none"
 
+        from processor.hospital_db import get_all_specializations
+        specs = get_all_specializations()
+        spec_list_str = ", ".join(specs) if specs else "Cardiology, Gastroenterology, Orthopaedics, Gynaecology, General Medicine, Dermatology"
+
         system_prompt = (
             "You are Aradhya Mishra, a hospital appointment assistant.\n"
             "Help ONLY with: hospitals, doctors, specialties, fees, schedules, "
@@ -87,13 +91,14 @@ class GroqLLM:
             "hospital_information, check_availability, check_appointment, cancel_appointment, "
             "cancel_booking_process, patient_navigation, unrelated.\n\n"
             "RULES:\n"
-            "- If the user describes a health concern (e.g. 'heart problem', 'stomach hurts') and asks which doctor/department to see, set intent=patient_navigation and set specialization to ONE of: Cardiology, Gastroenterology, Orthopaedics, Gynaecology, General Medicine, Dermatology. Do not guess outside these 6.\n"
+            f"- If the user describes a health concern (e.g. 'heart problem', 'stomach hurts') and asks which doctor/department to see, set intent=patient_navigation and set specialization to ONE of: {spec_list_str}.\n"
             "- NEVER diagnose a disease, prescribe medicine, recommend treatment, or invent medical information.\n"
             "- If the user says 'I want to book an appointment', intent is EXACTLY book_appointment. Do NOT hallucinate a hospital or doctor.\n"
             "- If the user says 'Book Dr. X tomorrow at 11 AM', set intent=book_appointment, "
             "doctor_name=Dr. X, appointment_date=tomorrow, appointment_time=11 AM.\n"
             "- NEVER put a patient name into doctor_name. Patient names go in patient_name.\n"
-            "- If user says 'My name is Ashish', patient_name=Ashish, doctor_name=null.\n"
+            "- If user says 'My name is Ashish', patient_name=Ashish, doctor_name=null. Pay close attention to phrases like 'My name is X' or 'My full name is X'. Extract the most likely human name.\n"
+            "- NEVER extract an address, location, or city as a patient's name.\n"
             "- For phone: convert 'one two three' -> '123', 'double four' -> '44', 'oh' -> '0'.\n"
             "- Separate date and time always. '27 August 11 AM' -> appointment_date='27 August', appointment_time='11 AM'.\n"
             "- If the user provides an address, location, or area, set address to it. If we are booking, keep intent=book_appointment.\n"

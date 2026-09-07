@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
-import { Bot, X, Send, Sparkles, User as UserIcon, RefreshCw, MessageSquare } from 'lucide-react';
+import { Bot, X, Send, Sparkles, User as UserIcon, RefreshCw, MessageSquare, Mic, Phone } from 'lucide-react';
+import { VoiceAgentModal } from './VoiceAgentModal';
 
 export const FloatingChatbot: React.FC = () => {
   const { messages, loading, isOpen, setIsOpen, sendMessage } = useChat();
   const [input, setInput] = useState('');
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -26,45 +28,60 @@ export const FloatingChatbot: React.FC = () => {
 
   if (!isOpen) {
     return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white rounded-full shadow-2xl hover:shadow-medical-500/40 hover:scale-105 transition-all duration-300 group"
-      >
-        <div className="relative">
-          <Bot className="w-6 h-6 text-white group-hover:rotate-12 transition-transform" />
-          <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse"></span>
-        </div>
-        <span className="font-semibold text-sm pr-1 hidden sm:inline">AI Health Assistant</span>
-      </button>
+      <>
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white rounded-full shadow-2xl hover:shadow-medical-500/40 hover:scale-105 transition-all duration-300 group"
+        >
+          <div className="relative">
+            <Bot className="w-6 h-6 text-white group-hover:rotate-12 transition-transform" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse"></span>
+          </div>
+          <span className="font-semibold text-sm pr-1 hidden sm:inline">AI Health Assistant</span>
+        </button>
+        <VoiceAgentModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
+      </>
     );
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[92vw] sm:w-[420px] h-[580px] max-h-[85vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5">
-      {/* Chat Header */}
-      <div className="p-4 bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-800 text-white flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
-            <Sparkles className="w-5 h-5 text-tealmed-300" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm">Hospital Health Assistant</h3>
-              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-semibold border border-emerald-400/30">
-                Online
-              </span>
+    <>
+      <div className="fixed bottom-4 right-4 z-50 w-[92vw] sm:w-[420px] h-[580px] max-h-[85vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5">
+        {/* Chat Header */}
+        <div className="p-4 bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-800 text-white flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
+              <Sparkles className="w-5 h-5 text-tealmed-300" />
             </div>
-            <p className="text-xs text-slate-300">Here to help with appointments, doctors, and healthcare services.</p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-sm">Hospital Health Assistant</h3>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-semibold border border-emerald-400/30">
+                  Online
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">Here to help with appointments and healthcare.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setVoiceModalOpen(true)}
+              className="p-2 rounded-xl bg-emerald-600/80 hover:bg-emerald-500 text-white transition-colors flex items-center gap-1 text-xs font-semibold shadow-sm"
+              title="Start Voice Call"
+            >
+              <Mic className="w-4 h-4 animate-pulse" />
+              <span className="hidden sm:inline">Voice Call</span>
+            </button>
+
+            <button
+              onClick={() => setIsOpen(false)}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
-
-        <button
-          onClick={() => setIsOpen(false)}
-          className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
 
       {/* Chat Messages */}
       <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
@@ -171,5 +188,7 @@ export const FloatingChatbot: React.FC = () => {
         </button>
       </form>
     </div>
+    <VoiceAgentModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
+    </>
   );
 };

@@ -38,6 +38,14 @@ class GroqProcessor(FrameProcessor):
         if not user_text:
             return
 
+        # Prevent echo loops if STT hears the TTS (only for long texts, never for short responses like 'yes'/'no')
+        last_bot = getattr(self, "last_assistant_text", "").lower().strip()
+        user_clean = user_text.lower().strip()
+        if last_bot and len(user_clean) > 8:
+            if user_clean in last_bot or last_bot in user_clean:
+                print(f"[ECHO CANCEL] Dropped echo: {user_text}")
+                return
+
         request_start = time.perf_counter()
         print(f"[USER] {user_text}")
 
@@ -62,6 +70,7 @@ class GroqProcessor(FrameProcessor):
         # If a new turn arrives while this runs, the next process_frame will cancel it.
 
     async def _speak_local_result(self, assistant_text, request_start):
+        self.last_assistant_text = assistant_text
         first_tts_time = time.perf_counter() - request_start
         print(f"[PERF] TOTAL: {first_tts_time:.3f}s")
         print(f"[ASSISTANT] {assistant_text}")

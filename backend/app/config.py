@@ -34,6 +34,13 @@ class Settings:
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     EMAIL_FROM: str = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
 
+    # Voice Agent & Telephony Settings
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    SARVAM_API_KEY: str = os.getenv("SARVAM_API_KEY", "")
+    CARTESIA_API_KEY: str = os.getenv("CARTESIA_API_KEY", "")
+    TELEPHONY_VIRTUAL_NUMBER: str = os.getenv("TELEPHONY_VIRTUAL_NUMBER", "+91-1800-HEALTHPLUS")
+    TELEPHONY_WS_PORT: int = int(os.getenv("TELEPHONY_WS_PORT", "8082"))
+
 settings = Settings()
 
 logger = logging.getLogger("hospital_app.config")

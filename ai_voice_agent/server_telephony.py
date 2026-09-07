@@ -9,8 +9,9 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIProcessor
-from pipecat.services.cartesia.stt import CartesiaSTTService
 from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.sarvam.stt import SarvamSTTService
+from pipecat.transcriptions.language import Language
 
 from pipecat.transports.websocket.server import (
     SingleClientWebsocketServerTransport,
@@ -43,6 +44,10 @@ async def main():
     if not cartesia_api_key:
         print("CARTESIA_API_KEY is missing from .env")
         return
+    sarvam_api_key = os.getenv("SARVAM_API_KEY")
+    if not sarvam_api_key:
+        print("SARVAM_API_KEY is missing from .env")
+        return
     
     conversation_id = uuid.uuid4()
     user_id = uuid.uuid4() # We use phone number for identity in Jeevan
@@ -62,14 +67,15 @@ async def main():
             )
         )
 
-        stt = CartesiaSTTService(
-            api_key=cartesia_api_key,
+        stt = SarvamSTTService(
+            api_key=sarvam_api_key,
+            language=Language.EN_IN,
         )
 
         # Note: TTS needs to output 8kHz for PSTN
         tts = CartesiaTTSService(
             api_key=cartesia_api_key,
-            voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22", # British Lady
+            voice_id="95d51f79-c397-46f9-b49a-23763d3eaa2d", # Arushi - Indian Voice
             sample_rate=8000,
         )
 
@@ -82,7 +88,7 @@ async def main():
         turn_manager = TurnManager(
             conversation_id=conversation_id,
             user_id=user_id,
-            timeout=0.18,
+            timeout=0.7,
         )
 
         rtvi = RTVIProcessor()

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
 import { DoctorNavbar } from './DoctorNavbar';
 import { AdminNavbar } from './AdminNavbar';
+import { VoiceAgentModal } from './VoiceAgentModal';
 import { 
   HeartPulse, 
   Calendar, 
@@ -13,7 +14,9 @@ import {
   Menu, 
   X,
   Stethoscope,
-  MessageSquare
+  MessageSquare,
+  Mic,
+  PhoneCall
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -22,6 +25,7 @@ export const Navbar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
 
   // Render role-specific navigation bars
   if (isDoctor) {
@@ -35,75 +39,84 @@ export const Navbar: React.FC = () => {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Brand Logo */}
-        <Link to="/" className="flex items-center gap-2.5 group">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-medical-600 to-medical-400 flex items-center justify-center text-white shadow-md shadow-medical-500/20 group-hover:scale-105 transition-transform duration-300">
-            <HeartPulse className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-medical-900 via-medical-700 to-tealmed-700 bg-clip-text text-transparent">
-              HealthPulse
-            </span>
-            <span className="block text-[10px] uppercase tracking-wider text-medical-600 font-bold -mt-1">
-              Smart Healthcare
-            </span>
-          </div>
-        </Link>
-
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-1 font-medium text-sm text-slate-600">
-          <Link
-            to="/"
-            className={`px-3.5 py-2 rounded-lg transition-colors ${
-              isActive('/') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
-            }`}
-          >
-            Home
-          </Link>
-          <Link
-            to="/doctors"
-            className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
-              isActive('/doctors') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
-            }`}
-          >
-            <Stethoscope className="w-4 h-4" />
-            Find Doctors
+    <>
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          {/* Brand Logo */}
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-medical-600 to-medical-400 flex items-center justify-center text-white shadow-md shadow-medical-500/20 group-hover:scale-105 transition-transform duration-300">
+              <HeartPulse className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-medical-900 via-medical-700 to-tealmed-700 bg-clip-text text-transparent">
+                HealthPulse
+              </span>
+              <span className="block text-[10px] uppercase tracking-wider text-medical-600 font-bold -mt-1">
+                Smart Healthcare
+              </span>
+            </div>
           </Link>
 
-          {user && (
-            <>
-              <Link
-                to="/dashboard"
-                className={`px-3.5 py-2 rounded-lg transition-colors ${
-                  isActive('/dashboard') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
-                }`}
-              >
-                Dashboard
-              </Link>
-              <Link
-                to="/my-appointments"
-                className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
-                  isActive('/my-appointments') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
-                }`}
-              >
-                <Calendar className="w-4 h-4" />
-                Appointments
-              </Link>
-            </>
-          )}
-        </nav>
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center gap-1 font-medium text-sm text-slate-600">
+            <Link
+              to="/"
+              className={`px-3.5 py-2 rounded-lg transition-colors ${
+                isActive('/') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
+              }`}
+            >
+              Home
+            </Link>
+            <Link
+              to="/doctors"
+              className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                isActive('/doctors') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
+              }`}
+            >
+              <Stethoscope className="w-4 h-4" />
+              Find Doctors
+            </Link>
 
-        {/* User CTA & AI Assistant Trigger */}
-        <div className="hidden md:flex items-center gap-3">
-          <button
-            onClick={() => setIsOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-tealmed-500 to-medical-500 text-white font-medium text-sm shadow-md shadow-tealmed-500/20 hover:opacity-95 transition-all hover:scale-[1.02]"
-          >
-            <Bot className="w-4 h-4 animate-bounce" />
-            AI Health Assistant
-          </button>
+            {user && (
+              <>
+                <Link
+                  to="/dashboard"
+                  className={`px-3.5 py-2 rounded-lg transition-colors ${
+                    isActive('/dashboard') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/my-appointments"
+                  className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    isActive('/my-appointments') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" />
+                  Appointments
+                </Link>
+              </>
+            )}
+          </nav>
+
+          {/* User CTA & AI Assistant Triggers */}
+          <div className="hidden md:flex items-center gap-2.5">
+            <button
+              onClick={() => setVoiceModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium text-sm shadow-md shadow-emerald-500/20 hover:opacity-95 transition-all hover:scale-[1.02]"
+            >
+              <Mic className="w-4 h-4 animate-pulse" />
+              <span>Voice AI</span>
+            </button>
+
+            <button
+              onClick={() => setIsOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-tealmed-500 to-medical-500 text-white font-medium text-sm shadow-md shadow-tealmed-500/20 hover:opacity-95 transition-all hover:scale-[1.02]"
+            >
+              <Bot className="w-4 h-4" />
+              <span>Chat AI</span>
+            </button>
 
           {user ? (
             <div className="flex items-center gap-3 pl-2 border-l border-slate-200">
@@ -239,6 +252,9 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
       )}
+
+      <VoiceAgentModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
     </header>
+    </>
   );
 };

@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, ai_tools, location
+from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, ai_tools, location, voice
 
 from app.database.supabase_client import SupabaseService
 
@@ -43,6 +43,7 @@ app.include_router(chat.router)
 app.include_router(telegram_webhook.router)
 app.include_router(admin.router)
 app.include_router(ai_tools.router)
+app.include_router(voice.router)
 
 @app.on_event("startup")
 def on_startup():
