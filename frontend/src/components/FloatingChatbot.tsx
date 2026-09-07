@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
-import { Bot, X, Send, Sparkles, User as UserIcon, Paperclip, Loader2, AlertCircle, FileText, Image as ImageIcon, ExternalLink } from 'lucide-react';
+import { Bot, X, Send, Sparkles, User as UserIcon, Paperclip, Loader2, AlertCircle, FileText, ExternalLink, Lock, LogIn } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 export const FloatingChatbot: React.FC = () => {
+  const { user } = useAuth();
   const { messages, loading, uploading, isOpen, setIsOpen, sendMessage, uploadFile } = useChat();
   const [input, setInput] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -22,13 +25,14 @@ export const FloatingChatbot: React.FC = () => {
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || loading || uploading) return;
+    if (!user || !input.trim() || loading || uploading) return;
     setUploadError(null);
     sendMessage(input);
     setInput('');
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -170,9 +174,29 @@ export const FloatingChatbot: React.FC = () => {
         </button>
       </div>
 
-      {/* Chat Messages */}
+      {/* Chat Messages / Logged-Out Prompt */}
       <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
-        {messages.length === 0 ? (
+        {!user ? (
+          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
+            <div className="w-16 h-16 rounded-2xl bg-medical-50 text-medical-600 flex items-center justify-center mb-4 shadow-inner border border-medical-100">
+              <Lock className="w-8 h-8 text-medical-600" />
+            </div>
+            <h4 className="font-bold text-slate-800 text-base mb-1.5">
+              Please log in to use the AI Health Assistant
+            </h4>
+            <p className="text-xs text-slate-500 mb-6 max-w-xs leading-relaxed">
+              Sign in to your account to search for doctors, book appointments, and chat with your smart healthcare assistant.
+            </p>
+            <Link
+              to="/login"
+              onClick={() => setIsOpen(false)}
+              className="w-full max-w-xs py-3 px-4 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-medical-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+            >
+              <LogIn className="w-4 h-4" />
+              Sign In to Chat
+            </Link>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
             <div className="w-14 h-14 rounded-2xl bg-medical-50 text-medical-600 flex items-center justify-center mb-3 shadow-inner">
               <Bot className="w-8 h-8" />
@@ -237,7 +261,7 @@ export const FloatingChatbot: React.FC = () => {
         )}
 
         {/* Loading / Uploading Indicator */}
-        {(loading || uploading) && (
+        {user && (loading || uploading) && (
           <div className="flex gap-3 justify-start">
             <div className="w-8 h-8 rounded-full bg-medical-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">
               <Bot className="w-4 h-4 animate-spin" />
@@ -283,14 +307,15 @@ export const FloatingChatbot: React.FC = () => {
           accept="application/pdf,image/jpeg,image/png,image/webp"
           onChange={handleFileSelect}
           className="hidden"
+          disabled={!user || loading || uploading}
         />
 
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={loading || uploading}
-          title="Attach PDF or image document (Max 15MB)"
-          className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0 border border-slate-200"
+          disabled={!user || loading || uploading}
+          title={!user ? "Please log in to attach files" : "Attach PDF or image document (Max 15MB)"}
+          className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0 border border-slate-200"
         >
           {uploading ? (
             <Loader2 className="w-4 h-4 text-medical-600 animate-spin" />
@@ -303,15 +328,15 @@ export const FloatingChatbot: React.FC = () => {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask AI or book appointment..."
-          className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:bg-white transition-all placeholder:text-slate-400"
-          disabled={loading || uploading}
+          placeholder={!user ? "Please log in to chat..." : "Ask AI or book appointment..."}
+          className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:bg-white transition-all placeholder:text-slate-400 disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+          disabled={!user || loading || uploading}
         />
 
         <button
           type="submit"
-          disabled={loading || uploading || !input.trim()}
-          className="w-10 h-10 rounded-full bg-medical-600 text-white flex items-center justify-center hover:bg-medical-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-medical-500/20 transition-all flex-shrink-0"
+          disabled={!user || loading || uploading || !input.trim()}
+          className="w-10 h-10 rounded-full bg-medical-600 text-white flex items-center justify-center hover:bg-medical-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-medical-500/20 transition-all flex-shrink-0"
         >
           <Send className="w-4 h-4" />
         </button>

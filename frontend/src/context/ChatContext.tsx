@@ -11,10 +11,20 @@ interface ChatContextType {
   setIsOpen: (open: boolean) => void;
   sendMessage: (text: string) => Promise<void>;
   uploadFile: (file: File, customTitle?: string) => Promise<void>;
+  clearChat: () => void;
   sessionId: string;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
+
+const DEFAULT_GREETING_MESSAGE: ChatMessage = {
+  id: 'welcome-greeting',
+  channel: 'web',
+  session_id: '',
+  role: 'assistant',
+  message: "Hello! I'm your health assistant. I can help you find doctors, book appointments, and answer questions. How can I help you today?",
+  created_at: new Date().toISOString()
+};
 
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -26,27 +36,60 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return localStorage.getItem('hospital_chat_session') || `session_${Math.random().toString(36).substring(2, 9)}`;
   });
 
-  useEffect(() => {
-    localStorage.setItem('hospital_chat_session', sessionId);
-  }, [sessionId]);
+  const clearChat = () => {
+    setMessages([]);
+    setLoading(false);
+    setUploading(false);
+    const newSession = `session_${Math.random().toString(36).substring(2, 9)}`;
+    setSessionId(newSession);
+    localStorage.removeItem('hospital_chat_session');
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith('hospital_chat_session')) {
+        localStorage.removeItem(key);
+      }
+    });
+  };
 
   useEffect(() => {
-    if (user) {
-      fetchHistory();
+    if (sessionId && user) {
+      localStorage.setItem('hospital_chat_session', sessionId);
+      localStorage.setItem(`hospital_chat_session_${user.id}`, sessionId);
     }
-  }, [user]);
+  }, [sessionId, user]);
 
-  const fetchHistory = async () => {
+  useEffect(() => {
+    if (user && user.id) {
+      fetchHistory(user.id);
+    } else {
+      clearChat();
+    }
+  }, [user?.id]);
+
+  const fetchHistory = async (userId: string) => {
+    setLoading(true);
     try {
       const res = await api.get('/chat/history');
-      setMessages(res.data);
+      const historyData: ChatMessage[] = res.data || [];
+      if (historyData.length > 0) {
+        setMessages(historyData);
+        const lastMsg = historyData[historyData.length - 1];
+        if (lastMsg?.session_id) {
+          setSessionId(lastMsg.session_id);
+        }
+      } else {
+        // Fresh session for logged-in user: show default greeting
+        setMessages([{ ...DEFAULT_GREETING_MESSAGE, session_id: sessionId }]);
+      }
     } catch (err) {
       console.error('Failed to load chat history:', err);
+      setMessages([{ ...DEFAULT_GREETING_MESSAGE, session_id: sessionId }]);
+    } finally {
+      setLoading(false);
     }
   };
 
   const sendMessage = async (text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() || !user) return;
 
     const tempUserMsg: ChatMessage = {
       id: Math.random().toString(),
@@ -94,9 +137,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const uploadFile = async (file: File, customTitle?: string) => {
+    if (!user) return;
     setUploading(true);
     const title = customTitle?.trim() || file.name;
-    const patientIdentifier = user?.id || user?.patient_code || user?.email || 'patient';
+    const patientIdentifier = user.id || user.patient_code || user.email || 'patient';
 
     const formData = new FormData();
     formData.append('file', file);
@@ -163,6 +207,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsOpen,
         sendMessage,
         uploadFile,
+        clearChat,
         sessionId
       }}
     >

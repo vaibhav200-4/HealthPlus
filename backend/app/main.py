@@ -1,3 +1,11 @@
+import asyncio
+import sys
+
+# On Windows, ProactorEventLoop has a known getaddrinfo/DNS resolution race condition
+# in asyncio socket operations under high concurrency. SelectorEventLoop resolves this cleanly.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
@@ -13,7 +14,7 @@ async def get_checkpointer() -> Any:
     if _checkpointer is not None:
         return _checkpointer
 
-    db_url = settings.SUPABASE_DB_URL
+    db_url = settings.SUPABASE_DB_URL or getattr(settings, "DATABASE_URL", "")
     is_prod = settings.ENVIRONMENT.lower() == "production"
 
     if is_prod and not db_url:
@@ -21,20 +22,42 @@ async def get_checkpointer() -> Any:
         raise RuntimeError("CRITICAL: Production startup failed! SUPABASE_DB_URL is required for LangGraph state checkpointer in production.")
 
     if db_url:
-        try:
-            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-            from psycopg_pool import AsyncConnectionPool
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from psycopg_pool import AsyncConnectionPool
 
-            _pool = AsyncConnectionPool(conninfo=db_url, max_size=10, open=False, kwargs={"autocommit": True})
-            await _pool.open()
-            _checkpointer = AsyncPostgresSaver(conn=_pool)
-            logger.info("LangGraph AsyncPostgresSaver checkpointer initialized.")
-            return _checkpointer
-        except Exception as e:
-            if is_prod:
-                logger.critical(f"CRITICAL: Failed to initialize AsyncPostgresSaver in production: {e}")
-                raise RuntimeError(f"CRITICAL: Production checkpointer initialization failed: {e}")
-            logger.warning(f"Failed to initialize AsyncPostgresSaver: {e}. Falling back to MemorySaver for local dev.")
+        max_attempts = 3
+        delay_seconds = 2.0
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                logger.info(f"Initializing AsyncPostgresSaver connection pool (attempt {attempt}/{max_attempts})...")
+                _pool = AsyncConnectionPool(
+                    conninfo=db_url,
+                    min_size=1,
+                    max_size=10,
+                    open=False,
+                    kwargs={"autocommit": True}
+                )
+                await _pool.open()
+                _checkpointer = AsyncPostgresSaver(conn=_pool)
+                logger.info("LangGraph AsyncPostgresSaver checkpointer initialized successfully.")
+                return _checkpointer
+            except Exception as e:
+                logger.warning(f"AsyncPostgresSaver pool setup attempt {attempt}/{max_attempts} failed: {e}")
+                if _pool is not None:
+                    try:
+                        await _pool.close()
+                    except Exception:
+                        pass
+                    _pool = None
+
+                if attempt < max_attempts:
+                    await asyncio.sleep(delay_seconds)
+                else:
+                    if is_prod:
+                        logger.critical(f"CRITICAL: Failed to initialize AsyncPostgresSaver in production after {max_attempts} attempts: {e}")
+                        raise RuntimeError(f"CRITICAL: Production checkpointer initialization failed: {e}") from e
+                    logger.warning(f"Failed to initialize AsyncPostgresSaver after {max_attempts} attempts: {e}. Falling back to MemorySaver for local dev.")
 
     logger.warning("SUPABASE_DB_URL not configured. Using MemorySaver fallback for local development.")
     _checkpointer = MemorySaver()
@@ -87,10 +110,18 @@ async def repair_checkpointer_storage():
 async def setup_checkpointer():
     cp = await get_checkpointer()
     if hasattr(cp, "setup"):
-        try:
-            await cp.setup()
-            logger.info("LangGraph checkpointer setup completed.")
-        except Exception as e:
-            logger.error(f"Error during checkpointer setup: {e}")
+        max_attempts = 3
+        delay_seconds = 2.0
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await cp.setup()
+                logger.info("LangGraph checkpointer setup completed successfully.")
+                break
+            except Exception as e:
+                logger.warning(f"Checkpointer setup attempt {attempt}/{max_attempts} failed: {e}")
+                if attempt < max_attempts:
+                    await asyncio.sleep(delay_seconds)
+                else:
+                    logger.error(f"Error during checkpointer setup after {max_attempts} attempts: {e}")
 
     await repair_checkpointer_storage()

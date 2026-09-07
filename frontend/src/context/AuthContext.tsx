@@ -110,6 +110,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = () => {
     localStorage.removeItem('hospital_auth_token');
+    localStorage.removeItem('hospital_chat_session');
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith('hospital_chat_session')) {
+        localStorage.removeItem(key);
+      }
+    });
     setToken(null);
     setUser(null);
   };
