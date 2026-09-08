@@ -125,14 +125,25 @@ class SupabaseService:
         if client:
             try:
                 res = client.table(table).insert(data).execute()
-                if res.data:
-                    return res.data[0]
+                if res.data and len(res.data) > 0:
+                    inserted = res.data[0]
+                    # Also keep local store in sync for active client
+                    records = _LOCAL_STORE.setdefault(table, [])
+                    if not any(str(r.get("id")) == str(inserted.get("id")) for r in records):
+                        records.append(inserted)
+                    return inserted
+                logger.error(f"Supabase insert returned empty data for table {table}")
+                return None
             except Exception as e:
                 logger.error(f"Error inserting into Supabase table {table}: {e}")
-                logger.critical(f"CRITICAL: Insert operation into table '{table}' fell back to _LOCAL_STORE!")
-        else:
-            logger.critical(f"CRITICAL: Insert operation into table '{table}' executing in _LOCAL_STORE fallback mode!")
+                logger.critical(f"CRITICAL: Insert operation into table '{table}' failed! Refusing to return fake success data.")
+                return None
         
+        # Only use local store if client is explicitly not configured (offline local dev mode)
+        logger.info(f"Insert operation into table '{table}' executing in offline _LOCAL_STORE mode.")
+        records = _LOCAL_STORE.setdefault(table, [])
+        if not any(str(r.get("id")) == str(data["id"]) for r in records):
+            records.append(data)
         return data
 
     @staticmethod

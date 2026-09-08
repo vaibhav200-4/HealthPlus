@@ -12,10 +12,12 @@ from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
 
 from processor.frames import UserTurnFrame
 from processor.hospital_handler import HospitalHandler
+from processor.manager import _token_overlap_ratio, _ECHO_OVERLAP_THRESHOLD
 
 
 class GroqProcessor(FrameProcessor):
-    def __init__(self, llm, conversation_id: uuid.UUID, user_id: uuid.UUID):
+    def __init__(self, llm, conversation_id: uuid.UUID, user_id: uuid.UUID,
+                 turn_manager=None):
         super().__init__()
         self.llm = llm
         self.conversation_id = conversation_id
@@ -23,6 +25,8 @@ class GroqProcessor(FrameProcessor):
         self.handler = HospitalHandler()
         self._generation_task = None
         self.greeted = False
+        # Reference to TurnManager so we can register bot replies for echo suppression
+        self.turn_manager = turn_manager
 
     async def warmup(self):
         pass
@@ -38,12 +42,14 @@ class GroqProcessor(FrameProcessor):
         if not user_text:
             return
 
-        # Prevent echo loops if STT hears the TTS (only for long texts, never for short responses like 'yes'/'no')
-        last_bot = getattr(self, "last_assistant_text", "").lower().strip()
-        user_clean = user_text.lower().strip()
-        if last_bot and len(user_clean) > 8:
-            if user_clean in last_bot or last_bot in user_clean:
-                print(f"[ECHO CANCEL] Dropped echo: {user_text}")
+        # ── Echo filter: discard if text overlaps heavily with last bot reply ──
+        last_bot = getattr(self, "last_assistant_text", "")
+        user_clean = user_text
+        # Only apply to utterances longer than 2 words (short words like 'yes'/'no' must pass)
+        if last_bot and len(user_clean.split()) > 2:
+            overlap = _token_overlap_ratio(user_clean, last_bot)
+            if overlap >= _ECHO_OVERLAP_THRESHOLD:
+                print(f"[ECHO CANCEL] Dropped echo (overlap={overlap:.2f}): {user_text!r}")
                 return
 
         request_start = time.perf_counter()
@@ -71,6 +77,9 @@ class GroqProcessor(FrameProcessor):
 
     async def _speak_local_result(self, assistant_text, request_start):
         self.last_assistant_text = assistant_text
+        # Notify TurnManager of the bot reply so post-speech suppression works
+        if self.turn_manager is not None:
+            self.turn_manager.register_bot_reply(assistant_text)
         first_tts_time = time.perf_counter() - request_start
         print(f"[PERF] TOTAL: {first_tts_time:.3f}s")
         print(f"[ASSISTANT] {assistant_text}")

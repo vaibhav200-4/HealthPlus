@@ -32,31 +32,206 @@ from processor.llm import normalize_phone
 # ---------------------------------------------------------------------------
 # Dynamic Hospital name normalizer – queries database dynamically
 # ---------------------------------------------------------------------------
+GENERIC_HOSPITAL_TOKENS = {
+    "hospital", "hospitals", "clinic", "clinics", "medical", "centre", "center",
+    "care", "advanced", "multispeciality", "speciality", "specialty", "health",
+    "healthcare", "nursing", "home", "institute", "institution", "department",
+    "unit", "facility", "doctor", "doctors", "doc", "availability", "check", "appointment"
+}
+
+HOSPITAL_ALIASES = {
+    # Sunrise Multispeciality Hospital
+    "sunrise": "Sunrise Multispeciality Hospital",
+    "sun rise": "Sunrise Multispeciality Hospital",
+    "sunrise multi": "Sunrise Multispeciality Hospital",
+    "sunrise multispeciality": "Sunrise Multispeciality Hospital",
+    "sunrise hospital": "Sunrise Multispeciality Hospital",
+
+    # Green Valley Medical Centre
+    "green valley": "Green Valley Medical Centre",
+    "greenvalley": "Green Valley Medical Centre",
+    "green valley medical": "Green Valley Medical Centre",
+    "green valley centre": "Green Valley Medical Centre",
+    "green valley center": "Green Valley Medical Centre",
+
+    # Central City Hospital
+    "central city": "Central City Hospital",
+    "central hospital": "Central City Hospital",
+    "central city hospital": "Central City Hospital",
+
+    # Harmony Care Hospital
+    "harmony": "Harmony Care Hospital",
+    "harmony care": "Harmony Care Hospital",
+    "harmony hospital": "Harmony Care Hospital",
+
+    # Lifeline Advanced Hospital
+    "lifeline": "Lifeline Advanced Hospital",
+    "life line": "Lifeline Advanced Hospital",
+    "lifeline advanced": "Lifeline Advanced Hospital",
+    "lifeline hospital": "Lifeline Advanced Hospital",
+
+    # Vijay Nagar Medical Clinic
+    "vijay nagar": "Vijay Nagar Medical Clinic",
+    "vijay": "Vijay Nagar Medical Clinic",
+    "vjaya nagar": "Vijay Nagar Medical Clinic",
+    "bjay nagar": "Vijay Nagar Medical Clinic",
+    "vijay nagar clinic": "Vijay Nagar Medical Clinic",
+    "vijay nagar medical": "Vijay Nagar Medical Clinic",
+
+    # Old Palasia Medical Clinic
+    "old palasia": "Old Palasia Medical Clinic",
+    "palasia": "Old Palasia Medical Clinic",
+    "palashia": "Old Palasia Medical Clinic",
+    "old palashia": "Old Palasia Medical Clinic",
+    "old palasia clinic": "Old Palasia Medical Clinic",
+
+    # Rajwada Medical Clinic
+    "rajwada": "Rajwada Medical Clinic",
+    "rajbada": "Rajwada Medical Clinic",
+    "raj wada": "Rajwada Medical Clinic",
+    "rajwada clinic": "Rajwada Medical Clinic",
+    "rajwada medical": "Rajwada Medical Clinic",
+
+    # Bhawarkuan Medical Clinic
+    "bhawarkuan": "Bhawarkuan Medical Clinic",
+    "bhanwarkuan": "Bhawarkuan Medical Clinic",
+    "bhanwar kuan": "Bhawarkuan Medical Clinic",
+    "bhanwar goa": "Bhawarkuan Medical Clinic",
+    "bower goa": "Bhawarkuan Medical Clinic",
+    "bower kuan": "Bhawarkuan Medical Clinic",
+    "bhanwar": "Bhawarkuan Medical Clinic",
+    "bower": "Bhawarkuan Medical Clinic",
+    "bhawarkua": "Bhawarkuan Medical Clinic",
+    "bhawarkwa": "Bhawarkuan Medical Clinic",
+    "bhawar": "Bhawarkuan Medical Clinic",
+    "pawar goa": "Bhawarkuan Medical Clinic",
+    "pawar kua": "Bhawarkuan Medical Clinic",
+    "pawarkua": "Bhawarkuan Medical Clinic",
+    "pawar goa medical clinic": "Bhawarkuan Medical Clinic",
+    "bhawarkuan clinic": "Bhawarkuan Medical Clinic",
+    "bhawarkuan medical": "Bhawarkuan Medical Clinic",
+
+    # Sudama Nagar Medical Clinic
+    "sudama nagar": "Sudama Nagar Medical Clinic",
+    "sudama": "Sudama Nagar Medical Clinic",
+    "sudamangar": "Sudama Nagar Medical Clinic",
+    "sudama clinic": "Sudama Nagar Medical Clinic",
+    "sudama nagar medical": "Sudama Nagar Medical Clinic",
+}
+
 def _normalize_hospital(raw: str) -> str | None:
     if not raw:
         return None
-    lower_raw = raw.lower().strip()
+    lower_raw = str(raw).lower().strip()
+    lower_raw = re.sub(r'[\.,!\?]+$', '', lower_raw).strip()
+
+    # 0. Check explicit aliases first
+    for alias, h_name in HOSPITAL_ALIASES.items():
+        if alias in lower_raw or lower_raw in alias:
+            return h_name
     
+    # Strip common generic words to find meaningful tokens
+    raw_tokens = [w for w in re.findall(r'\b[a-z0-9]+\b', lower_raw) if w not in GENERIC_HOSPITAL_TOKENS]
+    if not raw_tokens:
+        return None
+
     hospitals = get_hospitals()
     if not hospitals:
-        return raw.title()
-        
+        return None
+
+    raw_meaningful = " ".join(raw_tokens)
+
+    # 1. Exact or substring match on meaningful hospital name tokens
     for h_name, _ in hospitals:
-        lower_h = h_name.lower()
-        if lower_raw in lower_h or lower_h in lower_raw:
+        h_tokens = [w for w in re.findall(r'\b[a-z0-9]+\b', h_name.lower()) if w not in GENERIC_HOSPITAL_TOKENS]
+        h_meaningful = " ".join(h_tokens)
+        if h_meaningful and (raw_meaningful == h_meaningful or h_meaningful in raw_meaningful or raw_meaningful in h_meaningful):
             return h_name
-            
-    # Fuzzy word match fallback
-    raw_words = set(lower_raw.split())
+
+    # 2. Fuzzy token similarity match (difflib SequenceMatcher ratio >= 0.5) against hospital distinct tokens
+    best_h_name = None
+    best_score = 0.0
     for h_name, _ in hospitals:
-        h_words = set(h_name.lower().split())
-        if len(raw_words.intersection(h_words)) > 0:
-            return h_name
+        h_tokens = [w for w in re.findall(r'\b[a-z0-9]+\b', h_name.lower()) if w not in GENERIC_HOSPITAL_TOKENS]
+        for r_tok in raw_tokens:
+            if len(r_tok) < 3:
+                continue
+            for h_tok in h_tokens:
+                score = difflib.SequenceMatcher(None, r_tok, h_tok).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_h_name = h_name
+
+    if best_score >= 0.5:
+        return best_h_name
+
+    return None
+SPECIALIZATION_ALIASES = {
+    "cardio": "Cardiology",
+    "cardiologist": "Cardiology",
+    "cardiology": "Cardiology",
+    "cardiac": "Cardiology",
+    "heart": "Cardiology",
+    "cardio movies": "Cardiology",
+    "cardio logistics": "Cardiology",
+    "bookend cardiologist": "Cardiology",
+    "ortho": "Orthopaedics",
+    "orthopedics": "Orthopaedics",
+    "orthopaedic": "Orthopaedics",
+    "orthopaedics": "Orthopaedics",
+    "orthopedist": "Orthopaedics",
+    "bone": "Orthopaedics",
+    "derma": "Dermatology",
+    "dermatologist": "Dermatology",
+    "dermatology": "Dermatology",
+    "skin": "Dermatology",
+    "gynaec": "Gynaecology",
+    "gynaecology": "Gynaecology",
+    "gynecology": "Gynaecology",
+    "gynaecologist": "Gynaecology",
+    "gynecologist": "Gynaecology",
+    "women": "Gynaecology",
+    "gastro": "Gastroenterology",
+    "gastroenterology": "Gastroenterology",
+    "gastroenterologist": "Gastroenterology",
+    "stomach": "Gastroenterology",
+    "general medicine": "General Medicine",
+    "general physician": "General Medicine",
+    "physician": "General Medicine",
+}
+
+def _normalize_specialization(raw: str) -> str | None:
+    if not raw or str(raw).lower() in ("none", "null", ""):
+        return None
+    lower_raw = str(raw).lower().strip()
+
+    # 1. Alias lookup
+    for alias, std_spec in SPECIALIZATION_ALIASES.items():
+        if alias in lower_raw or lower_raw in alias:
+            return std_spec
+
+    # 2. Substring match against DB specializations
+    valid_specs = get_all_specializations() or [
+        "Cardiology", "Gastroenterology", "Orthopaedics",
+        "Gynaecology", "General Medicine", "Dermatology"
+    ]
+    for s in valid_specs:
+        if s.lower() in lower_raw or lower_raw in s.lower():
+            return s
+
+    # 3. Fuzzy word matching with difflib
+    raw_words = lower_raw.split()
+    for word in raw_words:
+        matches = difflib.get_close_matches(word, [s.lower() for s in valid_specs], n=1, cutoff=0.7)
+        if matches:
+            matched_lower = matches[0]
+            for s in valid_specs:
+                if s.lower() == matched_lower:
+                    return s
 
     return None
 
 
-# ---------------------------------------------------------------------------
 # Doctor name resolver – safe (only when appropriate)
 # ---------------------------------------------------------------------------
 def _resolve_doctor(name_hint: str, hospital_filter: str | None = None) -> tuple | None:
@@ -116,6 +291,7 @@ class HospitalHandler:
         self.appointment_time: str | None = None
         self.patient_name: str | None = None
         self.phone: str | None = None
+        self.phone_buffer = ""
         self.address: str | None = None
         
         self.current_intent: str | None = None
@@ -155,6 +331,12 @@ class HospitalHandler:
         self.awaiting_anything_else = False
 
         self._merge_entities(intent_data, user_text)
+
+        # Transition intent to book_appointment when doctor or hospital entity is present and intent is vague
+        if (self.doctor_name or self.hospital_name) and not self.current_intent:
+            self.current_intent = "book_appointment"
+            if intent in ("unknown", "unrelated", "greeting"):
+                intent = "book_appointment"
 
         # Fallback for LLM JSON failures or complete misclassifications during data collection
         if self.current_intent in ("book_appointment", "cancel_appointment", "check_appointment"):
@@ -220,7 +402,7 @@ class HospitalHandler:
             return self._handle_list_doctors(intent_data)
             
         if intent == "patient_navigation":
-            return self._handle_patient_navigation(intent_data)
+            return self._handle_patient_navigation(intent_data, user_text)
 
         if intent == "check_specialization" or intent == "specialization_information":
             return self._handle_check_specialization(intent_data)
@@ -264,9 +446,12 @@ class HospitalHandler:
         candidates_to_try = []
         if explicit_doc:
             candidates_to_try.append(explicit_doc)
-            
-        # Before date/time is known, try guessing from patient_name ONLY if we don't already have a doctor
-        if not self.doctor_name and not (self.appointment_date and self.appointment_time):
+
+        if not self.doctor_name:
+            if explicit_doc and explicit_doc not in candidates_to_try:
+                candidates_to_try.append(explicit_doc)
+            if user_text and user_text not in candidates_to_try:
+                candidates_to_try.append(user_text)
             if extracted_patient and extracted_patient not in candidates_to_try:
                 candidates_to_try.append(extracted_patient)
             if self.patient_name and self.patient_name not in candidates_to_try:
@@ -303,28 +488,73 @@ class HospitalHandler:
         if raw_ph:
             digits = re.sub(r"\D", "", str(raw_ph))
             if digits:
-                self.phone = digits
+                # Speech recognition often delivers a phone number in several turns.
+                if len(digits) >= 10:
+                    self.phone = digits[:10]
+                    self.phone_buffer = self.phone
+                else:
+                    self.phone_buffer = (self.phone_buffer + digits)[-10:]
+                    if len(self.phone_buffer) == 10:
+                        self.phone = self.phone_buffer
 
         # Address
         raw_a = d.get("address")
         if raw_a and str(raw_a).lower() not in ("none", "null", ""):
-            self.address = str(raw_a).strip()
+            clean_a = re.sub(r'^(my\s+address\s+is\s+|address\s+is\s+)', '', str(raw_a), flags=re.I).strip()
+            self.address = clean_a
+        elif self.current_intent == "book_appointment" and self.doctor_name and self.appointment_date and self.appointment_time and self.patient_name and self.phone and not self.address:
+            # We are explicitly in the address collection state! Accept ANY non-empty free-text input as address!
+            clean_user = re.sub(r'^(my\s+address\s+is\s+|address\s+is\s+)', '', user_text, flags=re.I).strip()
+            if clean_user and not any(w in clean_user.lower() for w in ("cancel", "stop", "exit", "quit")):
+                self.address = clean_user
 
-        # Hospital
-        raw_h = d.get("hospital_name")
-        if raw_h:
-            resolved = _normalize_hospital(raw_h)
-            if resolved:
-                self.hospital_name = resolved
-        if not self.hospital_name and user_text:
-            resolved = _normalize_hospital(user_text)
-            if resolved:
-                self.hospital_name = resolved
+        # Strip trailing punctuation from patient_name, address, doctor_name, hospital_name
+        def _clean_punct(val: str | None) -> str | None:
+            if not val:
+                return None
+            return re.sub(r'[\.,!\?]+$', '', str(val)).strip()
+
+        if self.patient_name:
+            self.patient_name = _clean_punct(self.patient_name)
+        if self.address:
+            self.address = _clean_punct(self.address)
+        if self.doctor_name:
+            self.doctor_name = _clean_punct(self.doctor_name)
+        if self.hospital_name:
+            self.hospital_name = _clean_punct(self.hospital_name)
 
         # Specialization
         raw_s = d.get("specialization")
+        norm_spec = None
         if raw_s:
-            self.specialization = str(raw_s).strip()
+            norm_spec = _normalize_specialization(str(raw_s)) or str(raw_s).strip()
+        elif user_text:
+            norm_spec = _normalize_specialization(user_text)
+
+        if norm_spec:
+            # Clear old doctor lock when searching by specialization
+            self.doctor_name = None
+            self.doctor_row = None
+            # If specialization changed or set, check if hospital was explicitly specified in this turn
+            raw_h = d.get("hospital_name")
+            explicit_h = _normalize_hospital(raw_h) if raw_h else _normalize_hospital(user_text)
+            if not explicit_h:
+                # User did not explicitly specify a hospital, clear old hospital filter to allow multi-hospital search
+                self.hospital_name = None
+            else:
+                self.hospital_name = explicit_h
+            self.specialization = norm_spec
+        else:
+            # Hospital (only if user explicitly mentions a hospital name)
+            raw_h = d.get("hospital_name")
+            if raw_h:
+                resolved = _normalize_hospital(raw_h)
+                if resolved:
+                    self.hospital_name = resolved
+            elif user_text:
+                resolved = _normalize_hospital(user_text)
+                if resolved:
+                    self.hospital_name = resolved
 
         # Date/Time
         raw_date = d.get("appointment_date")
@@ -332,8 +562,9 @@ class HospitalHandler:
             # STT might output a.m. or p.m. with dots. Remove dots to normalize.
             date_clean = re.sub(r'([ap])\.m\.', r'\1m', str(raw_date), flags=re.I)
             time_in_date = re.search(
-                r'\b(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm)\b',
-                date_clean
+                r'\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b',
+                date_clean,
+                flags=re.I,
             )
             if time_in_date:
                 self.appointment_time = time_in_date.group(0)
@@ -346,6 +577,10 @@ class HospitalHandler:
             time_clean = re.sub(r'([ap])\.m\.', r'\1m', str(raw_time), flags=re.I)
             self.appointment_time = time_clean.strip()
 
+        # CRITICAL GUARD: If doctor is set, lock hospital_name to doctor's actual database hospital!
+        if self.doctor_row and len(self.doctor_row) > 5 and self.doctor_row[5]:
+            self.hospital_name = self.doctor_row[5]
+
     def _looks_like_patient_context(self, d: dict) -> bool:
         p = d.get("patient_name")
         return bool(p and str(p).lower() not in ("none", "null", ""))
@@ -353,11 +588,14 @@ class HospitalHandler:
 
     # ── Information handlers ─────────────────────────────────────────────────
     def _handle_list_hospitals(self) -> str:
+        self.specialization = None
+        self.doctor_name = None
+        self.doctor_row = None
         rows = get_hospitals()
         if not rows:
             return "I'm sorry, I couldn't find any hospitals in our system right now."
         names = [r[0] for r in rows]
-        return f"We have {len(names)} hospitals: {', '.join(names)}."
+        return f"We have {len(names)} available hospitals: {', '.join(names)}. Which hospital would you prefer?"
 
     def _handle_list_doctors(self, d: dict) -> str:
         hospital = self.hospital_name
@@ -384,7 +622,11 @@ class HospitalHandler:
         ]
         return f"We have the following doctors: {', '.join(doc_list)}."
 
-    def _handle_patient_navigation(self, d: dict) -> str:
+    def _handle_patient_navigation(self, d: dict, user_text: str = "") -> str:
+        # If user asks about other hospitals or different hospitals, clear hospital filter
+        if any(w in user_text.lower() for w in ("other", "different", "else", "another")):
+            self.hospital_name = None
+
         spec = d.get("specialization") or self.specialization
         valid_specs = get_all_specializations() or ["Cardiology", "Gastroenterology", "Orthopaedics", "Gynaecology", "General Medicine", "Dermatology"]
         
@@ -417,6 +659,12 @@ class HospitalHandler:
         
         docs_str = ", ".join(doc_list)
         self.navigation_booking_pending = True
+
+        if len(rows) == 1 and any(w in user_text.lower() for w in ("other", "different", "else", "another")):
+            r = rows[0]
+            name = f"{r[0] if str(r[0]).startswith('Dr') else 'Dr. ' + r[0]}"
+            return f"Currently, {name} at {r[3]} is our only {matched_spec} specialist across all available hospitals (fee: rupees {int(float(r[1]))}, schedule: {r[2]}). Would you like to book an appointment with {name}?"
+
         return f"A {matched_spec} department may be appropriate. We have: {docs_str}. Would you like to book an appointment?"
 
     def _handle_check_specialization(self, d: dict) -> str:
@@ -449,28 +697,72 @@ class HospitalHandler:
 
     def _handle_check_availability(self) -> str:
         if not self.doctor_name:
-            return "For which doctor?"
+            if self.specialization:
+                rows = get_doctors_by_specialization(self.specialization, self.hospital_name)
+                if rows:
+                    doc_list = []
+                    for r in rows:
+                        name = f"{r[0] if str(r[0]).startswith('Dr') else 'Dr. ' + r[0]}"
+                        hosp = r[3]
+                        if self.hospital_name:
+                            doc_list.append(name)
+                        else:
+                            doc_list.append(f"{name} at {hosp}")
+                    location = f" at {self.hospital_name}" if self.hospital_name else ""
+                    return f"I found these {self.specialization} doctors{location}: {', '.join(doc_list)}. Which doctor would you like to check availability for?"
+            return "Which doctor would you like to check availability for?"
+        if not self.doctor_row:
+            self.doctor_row = get_doctor_by_name(self.doctor_name)
+
         if not self.appointment_date or not self.appointment_time:
-            return "What date and time?"
+            if not self.appointment_date:
+                return f"What date would you like to check for Dr. {self.doctor_name}?"
+            return f"What time would you like to check for Dr. {self.doctor_name} on {self.appointment_date}?"
+
+        doc = self.doctor_row
+        display = _fmt_doc(doc) if doc else f"Dr. {self.doctor_name}"
+        fee_amount = int(float(doc[3])) if (doc and len(doc) > 3 and doc[3]) else 500
+        fee_str = f" The consultation fee is rupees {fee_amount}."
+
         available = check_slot_available(self.doctor_name, self.appointment_date, self.appointment_time)
-        return "That slot is available." if available else "I'm sorry, that slot is not available."
+        if available:
+            self.navigation_booking_pending = True
+            return f"Yes, {display} is available on {self.appointment_date} at {self.appointment_time}.{fee_str} Would you like to book an appointment?"
+        else:
+            return f"No, {display} is not available on {self.appointment_date} at {self.appointment_time}. What other date or time works for you?"
 
     # ── Booking flow ─────────────────────────────────────────────────────────
     def _handle_booking(self) -> str:
-        if not self.hospital_name and not self.doctor_name:
-            rows = get_hospitals()
-            names = [r[0] for r in rows] if rows else []
-            if names:
-                return f"Which hospital would you prefer? Available options are: {', '.join(names)}."
-            return "Which hospital would you prefer?"
-
         if not self.doctor_name:
+            if self.specialization:
+                rows = get_doctors_by_specialization(self.specialization, self.hospital_name)
+                if rows:
+                    doc_list = []
+                    for r in rows:
+                        name = f"{r[0] if str(r[0]).startswith('Dr') else 'Dr. ' + r[0]}"
+                        hosp = r[3]
+                        if self.hospital_name:
+                            doc_list.append(name)
+                        else:
+                            doc_list.append(f"{name} at {hosp}")
+                    location = f" at {self.hospital_name}" if self.hospital_name else ""
+                    return f"I found these {self.specialization} doctors{location}: {', '.join(doc_list)}. Which doctor would you like to book?"
+                else:
+                    location = f" at {self.hospital_name}" if self.hospital_name else ""
+                    return f"I couldn't find any {self.specialization} doctors{location}. Which hospital or doctor would you prefer?"
+
             if self.hospital_name:
                 rows = get_doctors_by_hospital(self.hospital_name)
                 if rows:
                     doc_list = [f"{r[0] if str(r[0]).startswith('Dr') else 'Dr. ' + r[0]} ({r[1]})" for r in rows]
                     return f"At {self.hospital_name} we have: {', '.join(doc_list)}. Which doctor would you like to see?"
-            return "Which doctor would you like to see?"
+                return f"Which doctor would you like to see at {self.hospital_name}?"
+
+            rows = get_hospitals()
+            names = [r[0] for r in rows] if rows else []
+            if names:
+                return f"Which hospital would you prefer? Available options are: {', '.join(names)}."
+            return "Which hospital would you prefer?"
 
         if not self.doctor_row:
             self.doctor_row = get_doctor_by_name(self.doctor_name)
@@ -483,9 +775,14 @@ class HospitalHandler:
             self.hospital_name = doc[5]
 
         if not self.appointment_date or not self.appointment_time:
-            return (f"{display} specializes in {doc[2]} at {self.hospital_name}. "
-                    f"The consultation fee is rupees {int(float(doc[3]))} and they are available {doc[4]}. "
-                    "What date and time would you like to book?")
+            prompt = (
+                f"{display} specializes in {doc[2]} at {self.hospital_name}. "
+                f"The consultation fee is rupees {int(float(doc[3]))} and they are available {doc[4]}. "
+            )
+            if not self.appointment_date:
+                return prompt + "What date would you like to book?"
+            if not self.appointment_time:
+                return prompt + f"I have the date as {self.appointment_date}. What time would you like to book?"
 
         # All core booking info present, check availability
         available = check_slot_available(
@@ -635,6 +932,7 @@ class HospitalHandler:
         self.appointment_time = None
         self.patient_name = None
         self.phone = None
+        self.phone_buffer = ""
         self.address = None
         self.current_intent = None
         self.confirmation_pending = False

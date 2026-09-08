@@ -22,6 +22,10 @@ def normalize_phone(raw: str) -> str:
         return ""
     # First strip all non-alphanumeric except spaces
     text = re.sub(r"[^a-zA-Z0-9 ]", " ", str(raw).lower())
+    # STT can join words such as "twodouble eight" into one token.
+    digit_words = "zero|oh|o|one|two|three|four|five|six|seven|eight|nine"
+    text = re.sub(rf"({digit_words})(?=double|triple|quadruple)", r"\1 ", text)
+    text = re.sub(rf"(double|triple|quadruple)(?={digit_words})", r"\1 ", text)
     tokens = text.split()
     digits = []
     i = 0
@@ -54,6 +58,20 @@ class GroqLLM:
         self.client = AsyncGroq(api_key=api_key)
         self.model = "openai/gpt-oss-120b"
 
+    @classmethod
+    async def verify_llm_health(cls) -> bool:
+        """Startup health check that makes a real LLM call and fails loudly if it doesn't succeed."""
+        try:
+            instance = cls()
+            test_res = await instance.extract_intent("Test startup connection", {})
+            if test_res and test_res.get("intent"):
+                print("[LLM HEALTH CHECK] Groq LLM startup health check PASSED!")
+                return True
+            raise RuntimeError("LLM health check returned invalid response format.")
+        except Exception as e:
+            print(f"[LLM HEALTH CHECK FAILED CRITICAL] Groq LLM startup check failed: {e}")
+            raise RuntimeError(f"Groq LLM health check failed on startup: {e}") from e
+
     async def extract_intent(self, text: str, state: dict) -> dict:
         """
         Single fast Groq call.  Returns a dict with intent + entities.
@@ -69,7 +87,7 @@ class GroqLLM:
         spec_list_str = ", ".join(specs) if specs else "Cardiology, Gastroenterology, Orthopaedics, Gynaecology, General Medicine, Dermatology"
 
         system_prompt = (
-            "You are Aradhya , a hospital appointment assistant.\n"
+            "You are Aradhya Mishra , a hospital appointment assistant.\n"
             "Help ONLY with: hospitals, doctors, specialties, fees, schedules, "
             "availability, appointments (booking/cancellation/check).\n"
             "For any unrelated question reply with intent=unrelated.\n\n"
@@ -92,6 +110,8 @@ class GroqLLM:
             "cancel_booking_process, patient_navigation, unrelated.\n\n"
             "RULES:\n"
             f"- If the user describes a health concern (e.g. 'heart problem', 'stomach hurts') and asks which doctor/department to see, set intent=patient_navigation and set specialization to ONE of: {spec_list_str}.\n"
+            "- Handle STT phonetic mishearings or typos for medical specialties: e.g., 'cardio movies', 'cardio logistics', 'bookend cardiologist', 'cardio' -> specialization='Cardiology'; 'derma' -> specialization='Dermatology'; 'ortho' -> specialization='Orthopaedics'. Map them to the closest standard specialization.\n"
+            "- If the user asks whether a doctor is available on a date and time (e.g., 'Is Dr. X available tomorrow at 10 AM?', 'Will Dr. X be free?'), set intent=check_availability.\n"
             "- NEVER diagnose a disease, prescribe medicine, recommend treatment, or invent medical information.\n"
             "- If the user says 'I want to book an appointment', intent is EXACTLY book_appointment. Do NOT hallucinate a hospital or doctor.\n"
             "- If the user says 'Book Dr. X tomorrow at 11 AM', set intent=book_appointment, "

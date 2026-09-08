@@ -44,19 +44,109 @@ def create_voice_session():
 
 def _rule_based_intent(text: str) -> dict:
     t = text.lower().strip()
+
+    from processor.hospital_handler import _normalize_hospital
+    resolved_h = _normalize_hospital(text)
+    if resolved_h:
+        # If user explicitly specifies a hospital name (e.g. "Sunrise Multi Speciality Hospital"), it is hospital selection!
+        return {"intent": "book_appointment", "hospital_name": resolved_h}
+
+    # 1. Hospital inquiry check MUST only trigger for explicit listing questions/requests, NOT plain hospital names
+    if any(k in t for k in ["list hospital", "list hospitals", "which hospital", "which hospitals", "available hospital", "available hospitals", "show hospital", "show hospitals", "what hospital", "what hospitals", "all hospitals", "hospitals available"]):
+        if not any(k in t for k in ["book", "appointment", "doctor", "dr.", "dr ", "cardiolog", "dermatolog", "ortho", "gynaec", "gynec", "gastro", "pediatr", "neurol", "psychiat", "pulmon"]):
+            return {"intent": "list_hospitals"}
+
+    # 2. Check for doctor listing intent FIRST if user asks about doctors in general or available doctors
+    if any(k in t for k in ["which doctor", "which doctors", "what doctor", "what doctors", "available doctor", "available doctors", "doctors are available", "doctors available", "list doctor", "list doctors", "show doctor", "show doctors", "all doctors"]):
+        return {"intent": "list_doctors"}
+
+    # 3. General availability query for a specific doctor/slot
+    if any(k in t for k in ["availab", "free slot", "free time", "slot"]):
+        if not any(k in t for k in ["hospital", "hospitals"]):
+            return {"intent": "check_availability"}
+
+    # 3. Booking intent
     if any(k in t for k in ["book", "appointment", "schedule"]):
         return {"intent": "book_appointment"}
-    elif any(k in t for k in ["which doctor", "available doctor", "list doctor", "doctors", "find doctor", "doctor"]):
+
+    # 4. Specialty / Navigation intent
+    if any(k in t for k in ["cardio", "derma", "ortho", "gynaec", "gynec", "gastro", "pediatr", "neurol", "psychiat", "pulmon", "medicine", "physician", "doctor"]):
+        return {"intent": "patient_navigation"}
+
+    # 5. List doctors
+    if any(k in t for k in ["which doctor", "available doctor", "list doctor", "doctors", "find doctor"]):
         return {"intent": "list_doctors"}
-    elif any(k in t for k in ["hospital", "hospitals", "list hospital"]):
-        return {"intent": "list_hospitals"}
-    elif any(k in t for k in ["cancel"]):
+
+    # 6. Cancellation / Check
+    if any(k in t for k in ["cancel"]):
         return {"intent": "cancel_appointment"}
-    elif any(k in t for k in ["check appointment", "my appointment", "status"]):
+    if any(k in t for k in ["check appointment", "my appointment", "status"]):
         return {"intent": "check_appointment"}
-    elif any(k in t for k in ["hi", "hello", "hey", "greeting"]):
+
+    # 7. Greetings
+    if any(k in t for k in ["hi", "hello", "hey", "namaste", "good morning", "good afternoon", "good evening"]):
         return {"intent": "greeting"}
-    return {"intent": "greeting"}
+
+    return {"intent": "unknown"}
+
+
+def _extract_voice_entities(text: str) -> dict:
+    """Extract booking entities locally when the LLM is unavailable or vague."""
+    import re
+    from datetime import datetime, timedelta
+    from processor.hospital_db import get_all_specializations, get_doctors
+
+    lower_text = text.lower()
+    entities = {}
+
+    # Match the longest known doctor name inside a natural sentence.
+    doctor_matches = []
+    for doctor in get_doctors():
+        name = str(doctor[0])
+        clean_name = re.sub(r"^dr\.?\s*", "", name, flags=re.I).strip()
+        if clean_name.lower() in lower_text:
+            doctor_matches.append((len(clean_name), name))
+    if doctor_matches:
+        entities["doctor_name"] = max(doctor_matches)[1]
+
+    from processor.hospital_handler import _normalize_specialization
+    norm_spec = _normalize_specialization(text)
+    if norm_spec:
+        entities["specialization"] = norm_spec
+    else:
+        for specialization in get_all_specializations():
+            if str(specialization).lower() in lower_text:
+                entities["specialization"] = specialization
+                break
+
+    time_match = re.search(
+        r"\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b",
+        text,
+        re.I,
+    )
+    if time_match:
+        entities["appointment_time"] = re.sub(
+            r"([ap])\.m\.", r"\1m", time_match.group(0), flags=re.I
+        )
+
+    if "day after tomorrow" in lower_text:
+        entities["appointment_date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+    elif "tomorrow" in lower_text:
+        entities["appointment_date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    elif "today" in lower_text:
+        entities["appointment_date"] = datetime.now().strftime("%Y-%m-%d")
+    else:
+        date_match = re.search(
+            r"\b(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)|"
+            r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}|"
+            r"\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b",
+            text,
+            re.I,
+        )
+        if date_match:
+            entities["appointment_date"] = date_match.group(0)
+
+    return entities
 
 @router.websocket("/ws/{session_id}")
 async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -70,6 +160,7 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
     try:
         import sys
         import os
+        import asyncio
         ai_agent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "ai_voice_agent"))
         if ai_agent_dir not in sys.path:
             sys.path.insert(0, ai_agent_dir)
@@ -94,6 +185,7 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
         await websocket.send_json({
             "type": "bot_text",
             "text": initial_msg,
+            "voice_id": "95d51f79-c397-46f9-b49a-23763d3eaa2d",
             "session_id": session_id
         })
 
@@ -108,7 +200,8 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
             intent_data = None
             if llm:
                 try:
-                    intent_data = await llm.extract_intent(user_text, handler.state)
+                    # Timeout after 3.5s to allow Groq LLM API responses to complete reliably
+                    intent_data = await asyncio.wait_for(llm.extract_intent(user_text, handler.state), timeout=3.5)
                     # If LLM returned "unrelated" or empty intent, override with rule-based
                     if not intent_data or intent_data.get("intent") in ("unrelated", "unknown", None, ""):
                         logger.info(f"[WS Voice {session_id}] LLM returned '{intent_data}', falling back to rule-based.")
@@ -118,10 +211,34 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
                         else:
                             intent_data = rule_intent
                 except Exception as ex:
-                    logger.warning(f"LLM intent extraction failed: {ex}. Using rule-based intent.")
+                    logger.exception(f"LLM intent extraction failed or timed out: {ex}. Using rule-based intent fallback.")
                     intent_data = _rule_based_intent(user_text)
             else:
                 intent_data = _rule_based_intent(user_text)
+
+            local_entities = _extract_voice_entities(user_text)
+            for key, value in local_entities.items():
+                if value and not intent_data.get(key):
+                    intent_data[key] = value
+
+            if handler.current_intent == "book_appointment" and handler.patient_name and not handler.phone:
+                from processor.llm import normalize_phone
+                phone_digits = normalize_phone(user_text)
+                if phone_digits:
+                    intent_data["phone"] = phone_digits
+
+            # A direct availability question should be answered immediately,
+            # while a booking request should continue through the booking flow.
+            availability_words = ("available", "availability", "free slot", "free time")
+            is_availability_query = (
+                any(word in user_text.lower() for word in availability_words)
+                and not any(word in user_text.lower() for word in ("book", "appointment", "schedule"))
+                and intent_data.get("doctor_name")
+                and intent_data.get("appointment_date")
+                and intent_data.get("appointment_time")
+            )
+            if is_availability_query:
+                intent_data["intent"] = "check_availability"
             
             # CRITICAL: If we are in an active booking flow and got a generic intent
             # (like "greeting" because no keyword matched), preserve the flow intent
@@ -162,7 +279,7 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
                             text_lower = user_text.lower().strip()
                             
                             # Parse time like "10 AM", "10:00 AM", "3 PM"
-                            time_match = re.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm|a\.m\.|p\.m\.)\b', user_text, re.I)
+                            time_match = re.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?!\w)', user_text, re.I)
                             time_str = None
                             if time_match:
                                 time_str = time_match.group(0).strip()
@@ -214,8 +331,9 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
                                 entity_extracted = True
                             elif not handler.phone:
                                 digits = normalize_phone(text_clean)
-                                if len(digits) >= 10:
-                                    intent_data["phone"] = digits[:10]
+                                if digits:
+                                    # Keep partial chunks; HospitalHandler combines them.
+                                    intent_data["phone"] = digits
                                     entity_extracted = True
                             elif not handler.address:
                                 intent_data["address"] = text_clean
@@ -234,6 +352,7 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
             await websocket.send_json({
                 "type": "bot_text",
                 "text": clean_response,
+                "voice_id": "95d51f79-c397-46f9-b49a-23763d3eaa2d",
                 "intent": intent_data.get("intent"),
                 "end_call": should_end,
                 "state": handler.state

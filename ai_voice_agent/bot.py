@@ -20,6 +20,9 @@ from processor.hospital_db import warmup as warmup_db
 from processor.llm import GroqLLM
 from processor.llm_processor import GroqProcessor
 from processor.manager import TurnManager
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
+
 
 load_dotenv(override=True)
 
@@ -38,6 +41,14 @@ transport_params = {
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(
+            params=VADParams(
+                confidence=0.7,
+                start_secs=0.2,
+                stop_secs=0.3,
+                min_volume=0.6,
+            )
+        ),
     )
 }
 
@@ -74,19 +85,20 @@ async def bot(runner_args: RunnerArguments):
         voice_id="95d51f79-c397-46f9-b49a-23763d3eaa2d", # Arushi - Indian Voice
     )
 
-    llm_processor = GroqProcessor(
-        GroqLLM(),
-        conversation_id,
-        user_id,
+    turn_manager = TurnManager(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        timeout=0.2,
     )
 
     # Warmup database connection
     asyncio.create_task(asyncio.to_thread(warmup_db))
 
-    turn_manager = TurnManager(
-        conversation_id=conversation_id,
-        user_id=user_id,
-        timeout=0.7,
+    llm_processor = GroqProcessor(
+        GroqLLM(),
+        conversation_id,
+        user_id,
+        turn_manager=turn_manager,  # wired for post-speech echo suppression
     )
 
     rtvi = RTVIProcessor()

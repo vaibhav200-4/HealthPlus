@@ -24,6 +24,8 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
 
   const socketRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
+  const isCallingRef = useRef(false);
+  const isMutedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Fetch Telephony Info on mount
@@ -45,6 +47,47 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, statusText]);
 
+  // ── Guard flag: true while the bot is speaking via SpeechSynthesis ─────────
+  const botSpeakingRef = useRef(false);
+  // Last text the bot spoke – used for post-speech overlap filter
+  const lastBotTextRef = useRef('');
+
+  // ── Token-overlap echo detector (mirrors server-side logic) ──────────────
+  const echoOverlapRatio = (userText: string, botText: string): number => {
+    if (!userText || !botText) return 0;
+    const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean);
+    const ua = new Set(clean(userText));
+    const ba = new Set(clean(botText));
+    if (ua.size === 0) return 0;
+    let shared = 0;
+    ua.forEach(w => { if (ba.has(w)) shared++; });
+    return shared / ua.size;
+  };
+
+  // Get best available Indian Female voice from browser SpeechSynthesis
+  const getIndianFemaleVoice = (): SpeechSynthesisVoice | null => {
+    if (!('speechSynthesis' in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return null;
+
+    // 1. Look for explicit Indian Female voices
+    const inFemale = voices.find(v => 
+      (v.lang.includes('en-IN') || v.lang.includes('hi-IN') || v.lang.includes('ta-IN') || v.lang.includes('te-IN')) &&
+      (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('neerja') || v.name.toLowerCase().includes('heera') || v.name.toLowerCase().includes('veena') || v.name.toLowerCase().includes('komal') || v.name.toLowerCase().includes('maya') || v.name.toLowerCase().includes('zira'))
+    );
+    if (inFemale) return inFemale;
+
+    // 2. Look for any Indian voice (en-IN or hi-IN)
+    const inVoice = voices.find(v => v.lang.includes('en-IN') || v.lang.includes('hi-IN'));
+    if (inVoice) return inVoice;
+
+    // 3. Look for any female voice (English)
+    const femaleVoice = voices.find(v => v.lang.startsWith('en') && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('zira') || v.name.toLowerCase().includes('samantha') || v.name.toLowerCase().includes('victoria') || v.name.toLowerCase().includes('karen')));
+    if (femaleVoice) return femaleVoice;
+
+    return null;
+  };
+
   // Setup Speech Recognition
   const initSpeechRecognition = (socket: WebSocket) => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -57,9 +100,12 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = 'en-US';
+      recognition.lang = 'en-IN';
 
       recognition.onresult = (event: any) => {
+        // ── HARD BLOCK: drop everything while bot is speaking ────────────
+        if (botSpeakingRef.current) return;
+
         let interim = '';
         let final = '';
 
@@ -77,16 +123,29 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
         }
 
         if (final.trim() && socket && socket.readyState === WebSocket.OPEN) {
+          const trimmed = final.trim();
+
+          // ── Token-overlap echo filter ────────────────────────────────────
+          // Reject if >55% of words match what the bot just said
+          if (lastBotTextRef.current && trimmed.split(/\s+/).length > 2) {
+            const overlap = echoOverlapRatio(trimmed, lastBotTextRef.current);
+            if (overlap >= 0.55) {
+              console.warn(`[ECHO FILTER] Dropped (overlap=${overlap.toFixed(2)}): "${trimmed}"`);
+              setTranscript('');
+              return;
+            }
+          }
+
           const userMsg: MessageItem = {
             id: Date.now().toString(),
             sender: 'user',
-            text: final.trim(),
+            text: trimmed,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           };
           setMessages((prev) => [...prev, userMsg]);
           setTranscript('');
 
-          socket.send(JSON.stringify({ text: final.trim() }));
+          socket.send(JSON.stringify({ text: trimmed }));
           setStatusText('AI Assistant is processing...');
           setActiveVisualizer(true);
         }
@@ -97,15 +156,16 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       };
 
       recognition.onend = () => {
-        if (isCalling && !isMuted && recognitionRef.current) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {}
+        // Only restart if: call active AND not muted AND bot is NOT speaking
+        if (isCallingRef.current && !isMutedRef.current && !botSpeakingRef.current && recognitionRef.current === recognition) {
+          window.setTimeout(() => {
+            try { recognition.start(); } catch (e) {}
+          }, 100);
         }
       };
 
-      recognition.start();
       recognitionRef.current = recognition;
+      recognition.start();
     } catch (e) {
       console.error('Failed to start speech recognition:', e);
     }
@@ -115,26 +175,63 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   const speakText = (text: string) => {
     if (!('speechSynthesis' in window)) return;
     try {
+      // ── Step 1: Mark bot as speaking & record what it will say ──────────
+      botSpeakingRef.current = true;
+      lastBotTextRef.current = text;
+
+      // ── Step 2: Stop recognition BEFORE TTS starts speaking ─────────────
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
+
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
       
+      const chosenVoice = getIndianFemaleVoice();
+      if (chosenVoice) {
+        utterance.voice = chosenVoice;
+      }
+      utterance.rate = 1.18;
+      utterance.pitch = 1.15;
+      utterance.lang = 'en-IN';
+
       utterance.onstart = () => {
+        // Double-ensure recognition is stopped once speech actually starts
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch (e) {}
+        }
         setActiveVisualizer(true);
         setStatusText('Aradhya Mishra is speaking...');
       };
-      
+
       utterance.onend = () => {
         setActiveVisualizer(false);
         setStatusText('Listening for your response...');
+
+        // ── Step 3: 200ms cooldown after TTS ends before re-enabling mic ──
+        window.setTimeout(() => {
+          botSpeakingRef.current = false;
+          if (isCallingRef.current && !isMutedRef.current && recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch (e) {}
+          }
+        }, 200);
+      };
+
+      utterance.onerror = () => {
+        // Make sure we re-enable mic even on TTS error
+        botSpeakingRef.current = false;
+        if (isCallingRef.current && !isMutedRef.current && recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch (e) {}
+        }
       };
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
+      botSpeakingRef.current = false;
       console.warn('Speech Synthesis error:', e);
     }
   };
+
 
   const startVoiceCall = async () => {
     try {
@@ -165,6 +262,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
 
       socket.onopen = () => {
         setIsCalling(true);
+        isCallingRef.current = true;
         setStatusText('Connected! Speak into your microphone...');
         initSpeechRecognition(socket);
       };
@@ -197,6 +295,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       };
 
       socket.onclose = () => {
+        isCallingRef.current = false;
         setIsCalling(false);
         setStatusText('Call ended.');
         if (recognitionRef.current) {
@@ -210,6 +309,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   };
 
   const endVoiceCall = () => {
+    isCallingRef.current = false;
     if (socketRef.current) {
       socketRef.current.close();
       socketRef.current = null;
@@ -227,10 +327,20 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   };
 
   const toggleMute = () => {
-    setIsMuted(!isMuted);
-    if (!isMuted && recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch(e) {}
-    } else if (isMuted && socketRef.current) {
+    const nextMuted = !isMutedRef.current;
+    isMutedRef.current = nextMuted;
+    setIsMuted(nextMuted);
+    if (nextMuted) {
+      // Stop recognition AND stop any ongoing TTS when muting
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e) {}
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      botSpeakingRef.current = false;
+    } else if (!nextMuted && socketRef.current && !botSpeakingRef.current) {
+      // Only restart recognition if bot is not currently speaking
       try { recognitionRef.current?.start(); } catch(e) {}
     }
   };

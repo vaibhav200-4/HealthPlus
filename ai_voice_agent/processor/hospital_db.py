@@ -107,6 +107,26 @@ def warmup():
     except Exception as e:
         print(f"[DB ERROR] Warmup failed: {e}")
 
+def _is_test_doctor(doctor: dict) -> bool:
+    """Return True if the doctor record is a test/dummy entry that should be hidden."""
+    name = (doctor.get("name") or "").strip()
+    flags = [
+        "[test]",
+        "test specialist",
+        "dr. bob",
+        "dr bob",
+    ]
+    name_lower = name.lower()
+    # Check explicit test flags
+    for flag in flags:
+        if flag in name_lower:
+            return True
+    # Check for random hex suffix appended by seed scripts (e.g. "ed8741", "316ae7")
+    if re.search(r'\b[0-9a-f]{6}\b', name_lower):
+        return True
+    return False
+
+
 def _get_hospital_map():
     hospitals = SupabaseService.get_records("hospitals")
     return {h.get("id"): h.get("hospital_name") for h in hospitals if h.get("id")}
@@ -125,6 +145,8 @@ def get_all_context_string():
         context += "\nAVAILABLE DOCTORS:\n"
         h_map = _get_hospital_map()
         for d in doctors:
+            if _is_test_doctor(d):
+                continue
             h_name = h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
             name = d.get("name")
             spec = d.get("specialization")
@@ -146,8 +168,92 @@ def get_hospitals():
             result.append((name, address))
     return result
 
+MASTER_DOCTORS = [
+    # Sunrise Multispeciality Hospital (H001)
+    {"id": "D001", "hospital_id": "H001", "hospital_name": "Sunrise Multispeciality Hospital", "name": "Dr. Arjun Mehta", "specialization": "Cardiology", "consultation_fee": 900, "availability": "Monday to Saturday, 10:00 AM - 2:00 PM"},
+    {"id": "D002", "hospital_id": "H001", "hospital_name": "Sunrise Multispeciality Hospital", "name": "Dr. Neha Sharma", "specialization": "Neurology", "consultation_fee": 800, "availability": "Monday, Wednesday and Friday, 3:00 PM - 6:00 PM"},
+    {"id": "D101", "hospital_id": "H001", "hospital_name": "Sunrise Multispeciality Hospital", "name": "Dr. Amit Shah", "specialization": "General Medicine", "consultation_fee": 600, "availability": "Monday to Saturday, 9:00 AM - 1:00 PM"},
+    {"id": "D102", "hospital_id": "H001", "hospital_name": "Sunrise Multispeciality Hospital", "name": "Dr. Shalini Verma", "specialization": "Dermatology", "consultation_fee": 700, "availability": "Tuesday to Saturday, 2:00 PM - 5:00 PM"},
+
+    # Green Valley Medical Centre (H002)
+    {"id": "D003", "hospital_id": "H002", "hospital_name": "Green Valley Medical Centre", "name": "Dr. Riya Kapoor", "specialization": "Pediatrics", "consultation_fee": 700, "availability": "Monday to Friday, 9:00 AM - 1:00 PM"},
+    {"id": "D004", "hospital_id": "H002", "hospital_name": "Green Valley Medical Centre", "name": "Dr. Vikram Joshi", "specialization": "Dermatology", "consultation_fee": 650, "availability": "Tuesday to Saturday, 4:00 PM - 7:00 PM"},
+    {"id": "D103", "hospital_id": "H002", "hospital_name": "Green Valley Medical Centre", "name": "Dr. Suresh Nambiar", "specialization": "Cardiology", "consultation_fee": 850, "availability": "Monday to Saturday, 11:00 AM - 3:00 PM"},
+    {"id": "D104", "hospital_id": "H002", "hospital_name": "Green Valley Medical Centre", "name": "Dr. Pooja Gupta", "specialization": "General Medicine", "consultation_fee": 550, "availability": "Monday to Saturday, 10:00 AM - 2:00 PM"},
+
+    # Central City Hospital (H003)
+    {"id": "D005", "hospital_id": "H003", "hospital_name": "Central City Hospital", "name": "Dr. Sameer Patel", "specialization": "Endocrinology", "consultation_fee": 1000, "availability": "Monday to Friday, 11:00 AM - 3:00 PM"},
+    {"id": "D006", "hospital_id": "H003", "hospital_name": "Central City Hospital", "name": "Dr. Ananya Rao", "specialization": "Orthopedics", "consultation_fee": 850, "availability": "Monday, Tuesday, Thursday and Saturday, 2:00 PM - 6:00 PM"},
+    {"id": "D105", "hospital_id": "H003", "hospital_name": "Central City Hospital", "name": "Dr. Harshvardhan Kapoor", "specialization": "Cardiology", "consultation_fee": 950, "availability": "Monday to Saturday, 10:00 AM - 2:00 PM"},
+    {"id": "D106", "hospital_id": "H003", "hospital_name": "Central City Hospital", "name": "Dr. Divya Agrawal", "specialization": "Dermatology", "consultation_fee": 700, "availability": "Monday to Friday, 3:00 PM - 6:00 PM"},
+
+    # Harmony Care Hospital (H004)
+    {"id": "D007", "hospital_id": "H004", "hospital_name": "Harmony Care Hospital", "name": "Dr. Priya Nair", "specialization": "Gynecology", "consultation_fee": 750, "availability": "Monday to Saturday, 10:00 AM - 1:00 PM"},
+    {"id": "D008", "hospital_id": "H004", "hospital_name": "Harmony Care Hospital", "name": "Dr. Rahul Verma", "specialization": "Psychiatry", "consultation_fee": 900, "availability": "Monday to Friday, 5:00 PM - 8:00 PM"},
+    {"id": "D107", "hospital_id": "H004", "hospital_name": "Harmony Care Hospital", "name": "Dr. Vivek Saxena", "specialization": "General Medicine", "consultation_fee": 600, "availability": "Monday to Saturday, 9:00 AM - 1:00 PM"},
+
+    # Lifeline Advanced Hospital (H005)
+    {"id": "D009", "hospital_id": "H005", "hospital_name": "Lifeline Advanced Hospital", "name": "Dr. Karan Malhotra", "specialization": "Pulmonology", "consultation_fee": 850, "availability": "Monday to Friday, 9:00 AM - 12:00 PM"},
+    {"id": "D010", "hospital_id": "H005", "hospital_name": "Lifeline Advanced Hospital", "name": "Dr. Meera Iyer", "specialization": "General Surgery", "consultation_fee": 950, "availability": "Tuesday to Saturday, 11:00 AM - 3:00 PM"},
+    {"id": "D108", "hospital_id": "H005", "hospital_name": "Lifeline Advanced Hospital", "name": "Dr. Alok Tripathi", "specialization": "Cardiology", "consultation_fee": 900, "availability": "Monday to Saturday, 2:00 PM - 6:00 PM"},
+
+    # Vijay Nagar Medical Clinic (H_SEED_1)
+    {"id": "D109", "hospital_id": "H_SEED_1", "hospital_name": "Vijay Nagar Medical Clinic", "name": "Dr. Rajesh Singhania", "specialization": "Cardiology", "consultation_fee": 800, "availability": "Monday to Saturday, 10:00 AM - 2:00 PM"},
+    {"id": "D110", "hospital_id": "H_SEED_1", "hospital_name": "Vijay Nagar Medical Clinic", "name": "Dr. Sunita Saxena", "specialization": "Dermatology", "consultation_fee": 600, "availability": "Monday to Friday, 4:00 PM - 7:00 PM"},
+    {"id": "D111", "hospital_id": "H_SEED_1", "hospital_name": "Vijay Nagar Medical Clinic", "name": "Dr. Manish Choudhary", "specialization": "General Medicine", "consultation_fee": 500, "availability": "Monday to Saturday, 9:00 AM - 1:00 PM"},
+    {"id": "D112", "hospital_id": "H_SEED_1", "hospital_name": "Vijay Nagar Medical Clinic", "name": "Dr. Kavita Sharma", "specialization": "Gynecology", "consultation_fee": 650, "availability": "Monday to Saturday, 2:00 PM - 5:00 PM"},
+
+    # Old Palasia Medical Clinic (H_SEED_2)
+    {"id": "D113", "hospital_id": "H_SEED_2", "hospital_name": "Old Palasia Medical Clinic", "name": "Dr. Rohan Deshmukh", "specialization": "Orthopedics", "consultation_fee": 700, "availability": "Monday to Saturday, 11:00 AM - 3:00 PM"},
+    {"id": "D114", "hospital_id": "H_SEED_2", "hospital_name": "Old Palasia Medical Clinic", "name": "Dr. Sneha Kulkarni", "specialization": "Pediatrics", "consultation_fee": 600, "availability": "Monday to Friday, 9:00 AM - 1:00 PM"},
+    {"id": "D115", "hospital_id": "H_SEED_2", "hospital_name": "Old Palasia Medical Clinic", "name": "Dr. Deepak Jain", "specialization": "General Medicine", "consultation_fee": 500, "availability": "Monday to Saturday, 4:00 PM - 8:00 PM"},
+
+    # Rajwada Medical Clinic (H_SEED_3)
+    {"id": "D116", "hospital_id": "H_SEED_3", "hospital_name": "Rajwada Medical Clinic", "name": "Dr. Ashok Mishra", "specialization": "General Medicine", "consultation_fee": 500, "availability": "Monday to Saturday, 9:00 AM - 1:00 PM"},
+    {"id": "D117", "hospital_id": "H_SEED_3", "hospital_name": "Rajwada Medical Clinic", "name": "Dr. Priyanka Joshi", "specialization": "Dermatology", "consultation_fee": 650, "availability": "Tuesday to Saturday, 3:00 PM - 6:00 PM"},
+    {"id": "D118", "hospital_id": "H_SEED_3", "hospital_name": "Rajwada Medical Clinic", "name": "Dr. Tarun Sen", "specialization": "Cardiology", "consultation_fee": 850, "availability": "Monday to Saturday, 10:00 AM - 2:00 PM"},
+
+    # Bhawarkuan Medical Clinic (H_SEED_4)
+    {"id": "D119", "hospital_id": "H_SEED_4", "hospital_name": "Bhawarkuan Medical Clinic", "name": "Dr. Nitin Agrawal", "specialization": "General Medicine", "consultation_fee": 500, "availability": "Monday to Saturday, 10:00 AM - 2:00 PM"},
+    {"id": "D120", "hospital_id": "H_SEED_4", "hospital_name": "Bhawarkuan Medical Clinic", "name": "Dr. Swati Bhatt", "specialization": "Pediatrics", "consultation_fee": 600, "availability": "Monday to Saturday, 4:00 PM - 7:00 PM"},
+    {"id": "D121", "hospital_id": "H_SEED_4", "hospital_name": "Bhawarkuan Medical Clinic", "name": "Dr. Gopal Yadav", "specialization": "Orthopedics", "consultation_fee": 700, "availability": "Monday to Friday, 2:00 PM - 6:00 PM"},
+
+    # Sudama Nagar Medical Clinic (H_SEED_5)
+    {"id": "D122", "hospital_id": "H_SEED_5", "hospital_name": "Sudama Nagar Medical Clinic", "name": "Dr. Archana Tiwari", "specialization": "Gynecology", "consultation_fee": 650, "availability": "Monday to Saturday, 10:00 AM - 1:00 PM"},
+    {"id": "D123", "hospital_id": "H_SEED_5", "hospital_name": "Sudama Nagar Medical Clinic", "name": "Dr. Sanjay Dubey", "specialization": "General Medicine", "consultation_fee": 500, "availability": "Monday to Saturday, 5:00 PM - 8:00 PM"},
+    {"id": "D124", "hospital_id": "H_SEED_5", "hospital_name": "Sudama Nagar Medical Clinic", "name": "Dr. Rakesh Bansal", "specialization": "Dermatology", "consultation_fee": 600, "availability": "Tuesday to Saturday, 2:00 PM - 5:00 PM"},
+]
+
+def _get_all_doctors_merged():
+    remote_docs = SupabaseService.get_records("doctors") or []
+    h_map = _get_hospital_map()
+    
+    seen_ids = set()
+    seen_names = set()
+    merged = []
+    
+    # 1. Add remote non-test docs
+    for d in remote_docs:
+        if _is_test_doctor(d):
+            continue
+        d_id = str(d.get("id") or "")
+        d_name = str(d.get("name") or "").strip().lower()
+        if d_name:
+            seen_ids.add(d_id)
+            seen_names.add(d_name)
+            merged.append(d)
+            
+    # 2. Merge master doctors for complete hospital & specialization coverage
+    for m in MASTER_DOCTORS:
+        m_id = str(m["id"])
+        m_name = str(m["name"]).strip().lower()
+        if m_id not in seen_ids and m_name not in seen_names:
+            merged.append(m)
+            
+    return merged
+
 def get_doctors():
-    doctors = SupabaseService.get_records("doctors")
+    doctors = _get_all_doctors_merged()
     result = []
     for d in doctors:
         name = d.get("name")
@@ -159,13 +265,13 @@ def get_doctors():
     return result
 
 def get_doctors_by_specialization(specialization, hospital_name=None):
-    doctors = SupabaseService.get_records("doctors")
+    doctors = _get_all_doctors_merged()
     h_map = _get_hospital_map()
     result = []
     for d in doctors:
         spec = d.get("specialization") or ""
         if specialization and specialization.lower() in spec.lower():
-            h_name = h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
+            h_name = d.get("hospital_name") or h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
             if hospital_name and hospital_name.lower() not in h_name.lower():
                 continue
             name = d.get("name")
@@ -175,7 +281,7 @@ def get_doctors_by_specialization(specialization, hospital_name=None):
     return result
 
 def get_all_specializations():
-    doctors = SupabaseService.get_records("doctors")
+    doctors = _get_all_doctors_merged()
     specs = set()
     for d in doctors:
         s = d.get("specialization")
@@ -186,7 +292,7 @@ def get_all_specializations():
 def get_doctor_by_name(doctor_name):
     if not doctor_name:
         return None
-    doctors = SupabaseService.get_records("doctors")
+    doctors = _get_all_doctors_merged()
     h_map = _get_hospital_map()
     clean_search = re.sub(r'^(dr\.?|doctor)\s+', '', doctor_name.strip(), flags=re.I).lower()
     
@@ -199,19 +305,19 @@ def get_doctor_by_name(doctor_name):
             spec = d.get("specialization") or "General Medicine"
             fee = d.get("consultation_fee") or 500
             sched = d.get("availability") or "Mon-Sat 09:00 AM - 05:00 PM"
-            h_name = h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
+            h_name = d.get("hospital_name") or h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
             return (doc_id, name, spec, fee, sched, h_name)
     return None
 
 def get_doctors_by_hospital(hospital_name):
     if not hospital_name:
         return get_doctors()
-    doctors = SupabaseService.get_records("doctors")
+    doctors = _get_all_doctors_merged()
     h_map = _get_hospital_map()
     result = []
     for d in doctors:
-        h_name = h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
-        if hospital_name.lower() in h_name.lower():
+        h_name = d.get("hospital_name") or h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
+        if hospital_name.lower() in h_name.lower() or h_name.lower() in hospital_name.lower():
             name = d.get("name")
             spec = d.get("specialization")
             fee = d.get("consultation_fee") or 500
@@ -253,10 +359,11 @@ def create_appointment(patient_name, phone, address, doctor_name, appointment_da
     doc_real_name = doc[1] if doc else doctor_name
     hospital_name = doc[5] if doc else "HealthPlus Central Hospital"
     
+    voice_user_id = "00000000-0000-0000-0000-000000000001"
     # Try using BookingService
     try:
         success, msg, app_data = BookingService.create_appointment(
-            user_id="voice-agent-user",
+            user_id=voice_user_id,
             doctor_id=str(doc_id),
             doctor_name=doc_real_name,
             hospital_name=hospital_name,
@@ -268,14 +375,17 @@ def create_appointment(patient_name, phone, address, doctor_name, appointment_da
             patient_email="",
             notes=f"Booked via Voice AI Assistant. Address: {address or 'N/A'}"
         )
-        if success and app_data.get("id"):
+        if success and app_data and app_data.get("id"):
             return app_data["id"]
+        if not success:
+            print(f"[DB ERROR] BookingService reported failure: {msg}")
+            return None
     except Exception as e:
-        print(f"[DB WARN] BookingService call failed, falling back to direct insert: {e}")
+        print(f"[DB WARN] BookingService call failed, trying direct insert: {e}")
         
     # Direct fallback insert
     app_data = {
-        "user_id": "voice-agent-user",
+        "user_id": voice_user_id,
         "doctor_id": str(doc_id),
         "doctor_name": doc_real_name,
         "hospital_name": hospital_name,
@@ -291,7 +401,9 @@ def create_appointment(patient_name, phone, address, doctor_name, appointment_da
         "status": "confirmed"
     }
     inserted = SupabaseService.insert_record("appointments", app_data)
-    return inserted.get("id")
+    if inserted and inserted.get("id"):
+        return inserted.get("id")
+    return None
 
 def get_appointment_by_id(app_id):
     return SupabaseService.get_record_by_id("appointments", app_id)
