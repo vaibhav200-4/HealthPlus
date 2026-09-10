@@ -1,3 +1,6 @@
+import os
+import sys
+import asyncio
 import logging
 from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
@@ -20,13 +23,14 @@ async def get_checkpointer() -> Any:
         logger.critical("CRITICAL: Production startup failed! Direct SUPABASE_DB_URL is required for LangGraph AsyncPostgresSaver.")
         raise RuntimeError("CRITICAL: Production startup failed! SUPABASE_DB_URL is required for LangGraph state checkpointer in production.")
 
-    if db_url:
+    if db_url and (is_prod or sys.platform != "win32"):
         try:
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
             from psycopg_pool import AsyncConnectionPool
 
-            _pool = AsyncConnectionPool(conninfo=db_url, max_size=10, open=False, kwargs={"autocommit": True})
-            await _pool.open()
+            conn_timeout = 30.0 if is_prod else 3.0
+            _pool = AsyncConnectionPool(conninfo=db_url, max_size=10, open=False, timeout=conn_timeout, kwargs={"autocommit": True})
+            await asyncio.wait_for(_pool.open(), timeout=conn_timeout)
             _checkpointer = AsyncPostgresSaver(conn=_pool)
             logger.info("LangGraph AsyncPostgresSaver checkpointer initialized.")
             return _checkpointer
@@ -36,7 +40,7 @@ async def get_checkpointer() -> Any:
                 raise RuntimeError(f"CRITICAL: Production checkpointer initialization failed: {e}")
             logger.warning(f"Failed to initialize AsyncPostgresSaver: {e}. Falling back to MemorySaver for local dev.")
 
-    logger.warning("SUPABASE_DB_URL not configured. Using MemorySaver fallback for local development.")
+    logger.info("Using MemorySaver checkpointer for local development.")
     _checkpointer = MemorySaver()
     return _checkpointer
 

@@ -26,6 +26,9 @@ from processor.hospital_db import (
     verify_appointment_booked,
     verify_appointment_cancelled,
     get_hospital_address,
+    search_facilities_by_city,
+    geocode_location,
+    clean_location_string,
 )
 from processor.llm import normalize_phone
 
@@ -36,7 +39,13 @@ GENERIC_HOSPITAL_TOKENS = {
     "hospital", "hospitals", "clinic", "clinics", "medical", "centre", "center",
     "care", "advanced", "multispeciality", "speciality", "specialty", "health",
     "healthcare", "nursing", "home", "institute", "institution", "department",
-    "unit", "facility", "doctor", "doctors", "doc", "availability", "check", "appointment"
+    "unit", "facility", "doctor", "doctors", "doc", "availability", "check", "appointment",
+    "which", "what", "where", "available", "avail", "show", "list", "find", "are", "all", "the", "in", "at", "to", "for"
+}
+
+CONFIRMATION_WORDS = {
+    "yes", "yeah", "sure", "ok", "okay", "yep", "book", "confirm", "haan", "haa", "ha",
+    "true", "yes please", "yes i want to book", "book appointment", "no", "nope", "nahi", "nahin"
 }
 
 HOSPITAL_ALIASES = {
@@ -84,7 +93,6 @@ HOSPITAL_ALIASES = {
     "palashia": "Old Palasia Medical Clinic",
     "old palashia": "Old Palasia Medical Clinic",
     "old palasia clinic": "Old Palasia Medical Clinic",
-
     # Rajwada Medical Clinic
     "rajwada": "Rajwada Medical Clinic",
     "rajbada": "Rajwada Medical Clinic",
@@ -107,9 +115,31 @@ HOSPITAL_ALIASES = {
     "pawar goa": "Bhawarkuan Medical Clinic",
     "pawar kua": "Bhawarkuan Medical Clinic",
     "pawarkua": "Bhawarkuan Medical Clinic",
+    "bavar goa": "Bhawarkuan Medical Clinic",
+    "bavar goa medical clinic": "Bhawarkuan Medical Clinic",
+    "bavar": "Bhawarkuan Medical Clinic",
+    "bhavar goa": "Bhawarkuan Medical Clinic",
+    "bhavar goa medical clinic": "Bhawarkuan Medical Clinic",
+    "bhavar": "Bhawarkuan Medical Clinic",
+    "bawar goa": "Bhawarkuan Medical Clinic",
+    "bawar goa medical clinic": "Bhawarkuan Medical Clinic",
+    "bhawar goa": "Bhawarkuan Medical Clinic",
+    "bhawar goa medical clinic": "Bhawarkuan Medical Clinic",
     "pawar goa medical clinic": "Bhawarkuan Medical Clinic",
     "bhawarkuan clinic": "Bhawarkuan Medical Clinic",
     "bhawarkuan medical": "Bhawarkuan Medical Clinic",
+
+    # Old Palasia Medical Clinic
+    "old palasia": "Old Palasia Medical Clinic",
+    "palasia": "Old Palasia Medical Clinic",
+    "palashia": "Old Palasia Medical Clinic",
+    "old palashia": "Old Palasia Medical Clinic",
+    "old palacia": "Old Palasia Medical Clinic",
+    "palacia": "Old Palasia Medical Clinic",
+    "palacia clinic": "Old Palasia Medical Clinic",
+    "palacia medical clinic": "Old Palasia Medical Clinic",
+    "old palasia clinic": "Old Palasia Medical Clinic",
+    "old palasia medical clinic": "Old Palasia Medical Clinic",
 
     # Sudama Nagar Medical Clinic
     "sudama nagar": "Sudama Nagar Medical Clinic",
@@ -125,11 +155,26 @@ def _normalize_hospital(raw: str) -> str | None:
     lower_raw = str(raw).lower().strip()
     lower_raw = re.sub(r'[\.,!\?]+$', '', lower_raw).strip()
 
+    if not lower_raw or lower_raw in ("hospital", "hospitals", "clinic", "clinics", "medical", "none", "null"):
+        return None
+
     # 0. Check explicit aliases first
     for alias, h_name in HOSPITAL_ALIASES.items():
         if alias in lower_raw or lower_raw in alias:
             return h_name
     
+    # 0.5. Check fuzzy match against alias keys (SequenceMatcher ratio >= 0.70)
+    best_alias_h = None
+    best_alias_score = 0.0
+    for alias, h_name in HOSPITAL_ALIASES.items():
+        score = difflib.SequenceMatcher(None, lower_raw, alias).ratio()
+        if score > best_alias_score:
+            best_alias_score = score
+            best_alias_h = h_name
+
+    if best_alias_score >= 0.70:
+        return best_alias_h
+
     # Strip common generic words to find meaningful tokens
     raw_tokens = [w for w in re.findall(r'\b[a-z0-9]+\b', lower_raw) if w not in GENERIC_HOSPITAL_TOKENS]
     if not raw_tokens:
@@ -148,7 +193,7 @@ def _normalize_hospital(raw: str) -> str | None:
         if h_meaningful and (raw_meaningful == h_meaningful or h_meaningful in raw_meaningful or raw_meaningful in h_meaningful):
             return h_name
 
-    # 2. Fuzzy token similarity match (difflib SequenceMatcher ratio >= 0.5) against hospital distinct tokens
+    # 2. Fuzzy token similarity match
     best_h_name = None
     best_score = 0.0
     for h_name, _ in hospitals:
@@ -162,7 +207,7 @@ def _normalize_hospital(raw: str) -> str | None:
                     best_score = score
                     best_h_name = h_name
 
-    if best_score >= 0.5:
+    if best_score >= 0.70:
         return best_h_name
 
     return None
@@ -299,6 +344,11 @@ class HospitalHandler:
         self.navigation_booking_pending: bool = False
         self.awaiting_anything_else: bool = False
         
+        # Dynamic nearby search state (info-only, separate from booking)
+        self.location_query: str | None = None
+        self.nearby_results: list = []
+        self.awaiting_registered_booking: bool = False
+        
         self.cancel_appointments: list = []
         self.cancel_idx: int = 0
 
@@ -332,11 +382,37 @@ class HospitalHandler:
 
         self._merge_entities(intent_data, user_text)
 
-        # Transition intent to book_appointment when doctor or hospital entity is present and intent is vague
-        if (self.doctor_name or self.hospital_name) and not self.current_intent:
-            self.current_intent = "book_appointment"
-            if intent in ("unknown", "unrelated", "greeting"):
+        # Transition intent to book_appointment when doctor or hospital entity is present
+        if (self.doctor_name or self.hospital_name):
+            if not self.current_intent or self.current_intent in ("book_appointment", "nearby_search"):
+                self.current_intent = "book_appointment"
+                if intent in ("unknown", "unrelated", "greeting", "list_hospitals", "hospital_information"):
+                    intent = "book_appointment"
+
+        # ── Follow-up after dynamic nearby search: user wants to book at registered hospital ──
+        if getattr(self, "awaiting_registered_booking", False):
+            self.awaiting_registered_booking = False
+            text_lower = user_text.lower().strip()
+            confirm = intent_data.get("confirmation")
+            is_yes = confirm == "yes" or any(w in text_lower for w in ("yes", "yeah", "sure", "ok", "book", "appointment", "want to book", "ha", "haa", "haan"))
+            is_no = confirm == "no" or any(w in text_lower for w in ("no", "nope", "nahi", "nahin"))
+            
+            if is_yes and not is_no:
                 intent = "book_appointment"
+                self.current_intent = "book_appointment"
+            elif is_no:
+                self.awaiting_anything_else = True
+                return "Alright. How else can I help you today?"
+
+        # ── Nearby search continuation: user is providing their city/area name ──
+        if self.current_intent == "nearby_search" and not self.location_query:
+            # User is answering "Which city are you in?" — treat their text as location
+            text_clean = clean_location_string(user_text)
+            if text_clean and intent not in ("farewell", "greeting", "book_appointment",
+                                              "cancel_appointment", "list_hospitals"):
+                intent = "nearby_search"
+                intent_data["location_query"] = text_clean
+                intent_data["intent"] = "nearby_search"
 
         # Fallback for LLM JSON failures or complete misclassifications during data collection
         if self.current_intent in ("book_appointment", "cancel_appointment", "check_appointment"):
@@ -346,7 +422,8 @@ class HospitalHandler:
                     if self.current_intent == "book_appointment":
                         # Only collect patient details as fallback IF doctor/hospital & date/time are established
                         if (self.hospital_name or self.doctor_name) and self.appointment_date and self.appointment_time:
-                            if not self.patient_name:
+                            clean_text_val = text_clean.strip().lower().rstrip('.!?')
+                            if not self.patient_name and clean_text_val not in CONFIRMATION_WORDS:
                                 self.patient_name = text_clean
                                 intent = self.current_intent
                             elif not self.phone:
@@ -354,11 +431,12 @@ class HospitalHandler:
                                 if len(digits) >= 10:
                                     self.phone = digits[:10]
                                     intent = self.current_intent
-                            elif not self.address:
+                            elif not self.address and clean_text_val not in CONFIRMATION_WORDS:
                                 self.address = text_clean
                                 intent = self.current_intent
                     elif self.current_intent in ("cancel_appointment", "check_appointment"):
-                        if not self.patient_name:
+                        clean_text_val = text_clean.strip().lower().rstrip('.!?')
+                        if not self.patient_name and clean_text_val not in CONFIRMATION_WORDS:
                             self.patient_name = text_clean
                             intent = self.current_intent
                         elif not self.phone:
@@ -395,6 +473,9 @@ class HospitalHandler:
                     "I can help you with hospital information, doctor availability, "
                     "and appointment booking. How can I help you today?")
                     
+        if intent == "nearby_search":
+            return self._handle_nearby_search(intent_data, user_text)
+
         if intent == "list_hospitals":
             return self._handle_list_hospitals()
             
@@ -439,7 +520,20 @@ class HospitalHandler:
         if raw_p and str(raw_p).lower() not in ("none", "null", ""):
             extracted_patient = str(raw_p).strip()
 
-        # ── Doctor resolution ────────────────────────────────────────────────
+        # ── Hospital resolution ──────────────────────────────────────────────
+        raw_h = d.get("hospital_name")
+        candidates_h = []
+        if raw_h and str(raw_h).lower() not in ("none", "null", ""):
+            candidates_h.append(str(raw_h))
+        if user_text:
+            candidates_h.append(user_text)
+
+        if not self.hospital_name:
+            for cand_h in candidates_h:
+                norm_h = _normalize_hospital(cand_h)
+                if norm_h:
+                    self.hospital_name = norm_h
+                    break
         raw_d = d.get("doctor_name")
         explicit_doc = raw_d if (raw_d and str(raw_d).lower() not in ("none", "null", "")) else None
 
@@ -478,9 +572,10 @@ class HospitalHandler:
                     extracted_patient = None
                 break  # Stop once we have a valid doctor
 
-        # Only store as patient_name if the value is NOT a doctor
+        # Only store as patient_name if the value is NOT a doctor and NOT a confirmation word
         if extracted_patient:
-            if not _resolve_doctor(extracted_patient, self.hospital_name):
+            clean_p = extracted_patient.strip().lower().rstrip('.!?')
+            if clean_p not in CONFIRMATION_WORDS and not _resolve_doctor(extracted_patient, self.hospital_name):
                 self.patient_name = extracted_patient
 
         # Phone
@@ -585,6 +680,65 @@ class HospitalHandler:
         p = d.get("patient_name")
         return bool(p and str(p).lower() not in ("none", "null", ""))
 
+
+    # ── Dynamic Nearby Search Handler ───────────────────────────────────────
+    def _handle_nearby_search(self, intent_data: dict, user_text: str = "") -> str:
+        raw_loc = intent_data.get("location_query") or self.location_query
+        spec = intent_data.get("specialization") or self.specialization
+
+        loc = clean_location_string(raw_loc) if raw_loc else None
+        cleaned_user = clean_location_string(user_text) if user_text else None
+
+        # Filter out generic relative location tokens
+        INVALID_CITY_TOKENS = {"me", "here", "nearby", "near me", "near_me", "none", "null", ""}
+
+        # If location specified in intent_data or user_text, update state
+        if loc and loc.lower() not in INVALID_CITY_TOKENS:
+            self.location_query = loc
+        elif cleaned_user and cleaned_user.lower() not in INVALID_CITY_TOKENS and not any(w in cleaned_user.lower() for w in ("find hospitals", "hospitals near me", "show me hospital", "hospital near me")):
+            self.location_query = cleaned_user
+
+        # If no location query yet, ask user for location
+        if not self.location_query:
+            self.current_intent = "nearby_search"  # Remember we're waiting for city
+            return "Which city or area are you located in? I can search for nearby hospitals and clinics for you."
+
+        # Search facilities via Overpass API
+        self.current_intent = None  # Clear — we're executing, not waiting
+        results = search_facilities_by_city(self.location_query, specialty=spec)
+        if not results:
+            loc_disp = self.location_query.title()
+            self.location_query = None
+            self.awaiting_registered_booking = True
+            return (f"I couldn't find any medical facilities near {loc_disp}. "
+                    "Would you like to see available options at our registered HealthPlus hospitals instead?")
+
+        self.nearby_results = results
+        self.awaiting_registered_booking = True  # Enable follow-up booking transition
+        top_results = results[:5]
+
+        items = []
+        for i, f in enumerate(top_results, 1):
+            dist_m = f.get("distance_meters", 0)
+            if dist_m >= 1000:
+                dist_str = f"{dist_m / 1000:.1f} km"
+            else:
+                dist_str = f"{int(dist_m)} meters"
+
+            phone = f.get("phone")
+            phone_str = f", phone {phone}" if phone else ""
+            items.append(f"{i}. {f['name']} ({dist_str} away{phone_str})")
+
+        spec_str = f" for {spec}" if spec else ""
+        loc_disp = self.location_query.title()
+        res_str = "; ".join(items)
+
+        top_phrase = " The top five nearest are: " if len(results) > 5 else " "
+        return (
+            f"I found {len(results)} facilities near {loc_disp}{spec_str}.{top_phrase}{res_str}. "
+            "Please note these are external facilities provided for information only. "
+            "If you would like to book an appointment at one of our HealthPlus registered hospitals, just let me know!"
+        )
 
     # ── Information handlers ─────────────────────────────────────────────────
     def _handle_list_hospitals(self) -> str:
@@ -938,6 +1092,8 @@ class HospitalHandler:
         self.confirmation_pending = False
         self.navigation_booking_pending = False
         self.awaiting_anything_else = False
+        self.location_query = None
+        self.nearby_results = []
         self.cancel_appointments = []
 
     @property
@@ -950,5 +1106,6 @@ class HospitalHandler:
             "patient_name": self.patient_name,
             "phone": self.phone,
             "address": self.address,
+            "location_query": self.location_query,
         }
         return fields

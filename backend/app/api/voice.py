@@ -1,3 +1,4 @@
+import re
 import uuid
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
@@ -45,16 +46,32 @@ def create_voice_session():
 def _rule_based_intent(text: str) -> dict:
     t = text.lower().strip()
 
+    # 0. Dynamic location-based nearby search rule
+    # Triggers ONLY when location indicators ("near me", "in Mumbai", "around Vijay Nagar") are present
+    location_triggers = ["near me", "nearby", "near by", "around me", "close to me"]
+    is_location = any(lt in t for lt in location_triggers)
+    city_match = re.search(r'\b(?:in|at|around|near)\s+([a-zA-Z\s]{3,20})\b', t)
+    if not is_location and city_match:
+        c_name = city_match.group(1).strip().lower()
+        if c_name not in ("the hospital", "the clinic", "the morning", "the evening", "my area", "our hospital"):
+            is_location = True
+
+    if is_location and any(k in t for k in ["hospital", "hospitals", "doctor", "doctors", "clinic", "clinics", "specialist", "specialists"]):
+        loc_val = "near_me"
+        if city_match:
+            loc_val = city_match.group(1).strip()
+        return {"intent": "nearby_search", "location_query": loc_val}
+
+    # 1. Hospital inquiry check MUST trigger for explicit listing questions/requests
+    if any(k in t for k in ["list hospital", "list hospitals", "which hospital", "which hospitals", "available hospital", "available hospitals", "show hospital", "show hospitals", "what hospital", "what hospitals", "all hospitals", "hospitals available"]):
+        if not any(k in t for k in ["book", "appointment", "doctor", "dr.", "dr ", "cardiolog", "dermatolog", "ortho", "gynaec", "gynec", "gastro", "pediatr", "neurol", "psychiat", "pulmon"]):
+            return {"intent": "list_hospitals"}
+
     from processor.hospital_handler import _normalize_hospital
     resolved_h = _normalize_hospital(text)
     if resolved_h:
         # If user explicitly specifies a hospital name (e.g. "Sunrise Multi Speciality Hospital"), it is hospital selection!
         return {"intent": "book_appointment", "hospital_name": resolved_h}
-
-    # 1. Hospital inquiry check MUST only trigger for explicit listing questions/requests, NOT plain hospital names
-    if any(k in t for k in ["list hospital", "list hospitals", "which hospital", "which hospitals", "available hospital", "available hospitals", "show hospital", "show hospitals", "what hospital", "what hospitals", "all hospitals", "hospitals available"]):
-        if not any(k in t for k in ["book", "appointment", "doctor", "dr.", "dr ", "cardiolog", "dermatolog", "ortho", "gynaec", "gynec", "gastro", "pediatr", "neurol", "psychiat", "pulmon"]):
-            return {"intent": "list_hospitals"}
 
     # 2. Check for doctor listing intent FIRST if user asks about doctors in general or available doctors
     if any(k in t for k in ["which doctor", "which doctors", "what doctor", "what doctors", "available doctor", "available doctors", "doctors are available", "doctors available", "list doctor", "list doctors", "show doctor", "show doctors", "all doctors"]):
@@ -198,23 +215,22 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
             logger.info(f"[WS Voice {session_id}] User text: {user_text}")
 
             intent_data = None
-            if llm:
-                try:
-                    # Timeout after 3.5s to allow Groq LLM API responses to complete reliably
-                    intent_data = await asyncio.wait_for(llm.extract_intent(user_text, handler.state), timeout=3.5)
-                    # If LLM returned "unrelated" or empty intent, override with rule-based
-                    if not intent_data or intent_data.get("intent") in ("unrelated", "unknown", None, ""):
-                        logger.info(f"[WS Voice {session_id}] LLM returned '{intent_data}', falling back to rule-based.")
-                        rule_intent = _rule_based_intent(user_text)
-                        if intent_data:
-                            intent_data["intent"] = rule_intent["intent"]
-                        else:
-                            intent_data = rule_intent
-                except Exception as ex:
-                    logger.exception(f"LLM intent extraction failed or timed out: {ex}. Using rule-based intent fallback.")
-                    intent_data = _rule_based_intent(user_text)
+            if handler.current_intent == "nearby_search":
+                intent_data = {"intent": "nearby_search", "location": user_text, "location_query": user_text}
             else:
-                intent_data = _rule_based_intent(user_text)
+                rule_intent = _rule_based_intent(user_text)
+                if rule_intent.get("intent") != "unknown":
+                    intent_data = rule_intent
+                elif llm:
+                    try:
+                        intent_data = await asyncio.wait_for(llm.extract_intent(user_text, handler.state), timeout=1.5)
+                        if not intent_data or intent_data.get("intent") in ("unrelated", "unknown", None, ""):
+                            intent_data = rule_intent
+                    except Exception as ex:
+                        logger.warning(f"LLM intent fallback: {ex}")
+                        intent_data = rule_intent
+                else:
+                    intent_data = rule_intent
 
             local_entities = _extract_voice_entities(user_text)
             for key, value in local_entities.items():

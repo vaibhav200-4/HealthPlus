@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Phone, PhoneOff, X, Volume2, Sparkles, AlertCircle, RefreshCw } from 'lucide-react';
+import ReactDOM from 'react-dom';
+import { Mic, MicOff, Phone, PhoneOff, X, Volume2, Sparkles } from 'lucide-react';
 
 interface VoiceAgentModalProps {
   isOpen: boolean;
@@ -19,7 +20,6 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [transcript, setTranscript] = useState('');
   const [statusText, setStatusText] = useState('Ready to connect');
-  const [telephonyNumber, setTelephonyNumber] = useState('+91-1800-HEALTHPLUS');
   const [activeVisualizer, setActiveVisualizer] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
@@ -27,20 +27,6 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   const isCallingRef = useRef(false);
   const isMutedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Fetch Telephony Info on mount
-  useEffect(() => {
-    fetch('/api/voice/telephony-info')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.phone_number) {
-          setTelephonyNumber(data.phone_number);
-        }
-      })
-      .catch(() => {
-        // Default fallback number
-      });
-  }, []);
 
   // Auto scroll transcript
   useEffect(() => {
@@ -52,7 +38,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   // Last text the bot spoke – used for post-speech overlap filter
   const lastBotTextRef = useRef('');
 
-  // ── Token-overlap echo detector (mirrors server-side logic) ──────────────
+  // ── Token-overlap echo detector ──────────────────────────────────────────
   const echoOverlapRatio = (userText: string, botText: string): number => {
     if (!userText || !botText) return 0;
     const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean);
@@ -103,7 +89,6 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       recognition.lang = 'en-IN';
 
       recognition.onresult = (event: any) => {
-        // ── HARD BLOCK: drop everything while bot is speaking ────────────
         if (botSpeakingRef.current) return;
 
         let interim = '';
@@ -125,8 +110,6 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
         if (final.trim() && socket && socket.readyState === WebSocket.OPEN) {
           const trimmed = final.trim();
 
-          // ── Token-overlap echo filter ────────────────────────────────────
-          // Reject if >55% of words match what the bot just said
           if (lastBotTextRef.current && trimmed.split(/\s+/).length > 2) {
             const overlap = echoOverlapRatio(trimmed, lastBotTextRef.current);
             if (overlap >= 0.55) {
@@ -156,7 +139,6 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       };
 
       recognition.onend = () => {
-        // Only restart if: call active AND not muted AND bot is NOT speaking
         if (isCallingRef.current && !isMutedRef.current && !botSpeakingRef.current && recognitionRef.current === recognition) {
           window.setTimeout(() => {
             try { recognition.start(); } catch (e) {}
@@ -175,18 +157,16 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   const speakText = (text: string) => {
     if (!('speechSynthesis' in window)) return;
     try {
-      // ── Step 1: Mark bot as speaking & record what it will say ──────────
       botSpeakingRef.current = true;
       lastBotTextRef.current = text;
 
-      // ── Step 2: Stop recognition BEFORE TTS starts speaking ─────────────
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch (e) {}
       }
 
       window.speechSynthesis.cancel();
+
       const utterance = new SpeechSynthesisUtterance(text);
-      
       const chosenVoice = getIndianFemaleVoice();
       if (chosenVoice) {
         utterance.voice = chosenVoice;
@@ -196,7 +176,6 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       utterance.lang = 'en-IN';
 
       utterance.onstart = () => {
-        // Double-ensure recognition is stopped once speech actually starts
         if (recognitionRef.current) {
           try { recognitionRef.current.stop(); } catch (e) {}
         }
@@ -207,31 +186,33 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       utterance.onend = () => {
         setActiveVisualizer(false);
         setStatusText('Listening for your response...');
-
-        // ── Step 3: 200ms cooldown after TTS ends before re-enabling mic ──
         window.setTimeout(() => {
           botSpeakingRef.current = false;
           if (isCallingRef.current && !isMutedRef.current && recognitionRef.current) {
             try { recognitionRef.current.start(); } catch (e) {}
           }
-        }, 200);
+        }, 150);
       };
 
       utterance.onerror = () => {
-        // Make sure we re-enable mic even on TTS error
         botSpeakingRef.current = false;
         if (isCallingRef.current && !isMutedRef.current && recognitionRef.current) {
           try { recognitionRef.current.start(); } catch (e) {}
         }
       };
 
-      window.speechSynthesis.speak(utterance);
+      window.setTimeout(() => {
+        try {
+          window.speechSynthesis.speak(utterance);
+        } catch (e) {
+          botSpeakingRef.current = false;
+        }
+      }, 15);
     } catch (e) {
       botSpeakingRef.current = false;
       console.warn('Speech Synthesis error:', e);
     }
   };
-
 
   const startVoiceCall = async () => {
     try {
@@ -331,7 +312,6 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
     isMutedRef.current = nextMuted;
     setIsMuted(nextMuted);
     if (nextMuted) {
-      // Stop recognition AND stop any ongoing TTS when muting
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch(e) {}
       }
@@ -340,30 +320,29 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       }
       botSpeakingRef.current = false;
     } else if (!nextMuted && socketRef.current && !botSpeakingRef.current) {
-      // Only restart recognition if bot is not currently speaking
       try { recognitionRef.current?.start(); } catch(e) {}
     }
   };
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-gradient-to-b from-slate-900 via-slate-800 to-slate-950 text-white rounded-3xl shadow-2xl border border-slate-700/60 overflow-hidden flex flex-col max-h-[90vh]">
+  const modalContent = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-hidden">
+      <div className="relative w-full max-w-lg h-[85vh] max-h-[600px] bg-gradient-to-b from-slate-900 via-slate-800 to-slate-950 text-white rounded-3xl shadow-2xl border border-slate-700/60 overflow-hidden flex flex-col my-auto">
         {/* Header */}
-        <div className="p-5 bg-slate-800/80 border-b border-slate-700 flex items-center justify-between">
+        <div className="p-4 sm:p-5 bg-slate-800/80 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                <Sparkles className="w-6 h-6 text-slate-950" />
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                <Sparkles className="w-5 h-5 text-slate-950" />
               </div>
               {isCalling && (
-                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-ping" />
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-900 animate-ping" />
               )}
             </div>
             <div>
-              <h3 className="font-bold text-base text-white">Aradhya Mishra</h3>
-              <p className="text-xs text-slate-400">HealthPlus AI Voice Assistant</p>
+              <h3 className="font-bold text-base text-white leading-tight">Aradhya Mishra</h3>
+              <p className="text-xs text-slate-400">HealthPlus AI Web Voice Assistant</p>
             </div>
           </div>
 
@@ -373,45 +352,32 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
               onClose();
             }}
             className="p-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-700/50 transition-colors"
+            title="Close Assistant"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Telephony Banner */}
-        <div className="px-5 py-2.5 bg-emerald-950/40 border-b border-emerald-800/40 flex items-center justify-between text-xs text-emerald-300">
-          <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-emerald-400" />
-            <span>Telephony Hotline: <strong className="text-white">{telephonyNumber}</strong></span>
-          </div>
-          <a
-            href={`tel:${telephonyNumber}`}
-            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg transition-colors shadow-sm"
-          >
-            Dial Phone
-          </a>
-        </div>
-
         {/* Voice Visualizer Area */}
-        <div className="p-6 flex flex-col items-center justify-center border-b border-slate-800 bg-slate-900/40">
-          <div className="relative flex items-center justify-center my-4">
+        <div className="p-5 flex flex-col items-center justify-center border-b border-slate-800 bg-slate-900/40 flex-shrink-0">
+          <div className="relative flex items-center justify-center my-2">
             {/* Wave Rings */}
             {isCalling && activeVisualizer && (
               <>
-                <div className="absolute w-36 h-36 rounded-full bg-emerald-500/20 animate-ping opacity-75" />
-                <div className="absolute w-48 h-48 rounded-full bg-teal-500/10 animate-pulse" />
+                <div className="absolute w-32 h-32 rounded-full bg-emerald-500/20 animate-ping opacity-75" />
+                <div className="absolute w-44 h-44 rounded-full bg-teal-500/10 animate-pulse" />
               </>
             )}
 
             <button
               onClick={isCalling ? endVoiceCall : startVoiceCall}
-              className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 ${
+              className={`relative z-10 w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 ${
                 isCalling
                   ? 'bg-gradient-to-br from-red-500 to-rose-600 shadow-red-500/30'
                   : 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/30'
               }`}
             >
-              {isCalling ? <PhoneOff className="w-10 h-10 text-white" /> : <Mic className="w-10 h-10 text-white" />}
+              {isCalling ? <PhoneOff className="w-8 h-8 text-white" /> : <Mic className="w-8 h-8 text-white" />}
             </button>
           </div>
 
@@ -420,19 +386,19 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
           </p>
 
           {transcript && (
-            <div className="mt-3 px-4 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-slate-300 max-w-xs text-center">
+            <div className="mt-2 px-3 py-1.5 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-slate-300 max-w-xs text-center">
               "{transcript}"
             </div>
           )}
         </div>
 
-        {/* Conversation Transcript */}
-        <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-[160px] max-h-[260px] bg-slate-950/60 text-xs">
+        {/* Conversation Transcript (Scrollable) */}
+        <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-0 bg-slate-950/60 text-xs scrollbar-thin scrollbar-thumb-slate-700">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-500 text-center py-6">
               <Volume2 className="w-8 h-8 text-slate-600 mb-2" />
-              <p>Press the green mic button to start your voice call</p>
-              <p className="text-[11px] text-slate-600 mt-1">Or dial <strong className="text-slate-400">{telephonyNumber}</strong> directly from your phone</p>
+              <p className="font-medium text-slate-400">Click the green mic button to start speaking</p>
+              <p className="text-[11px] text-slate-500 mt-1 max-w-xs">Ask about doctor availability, hospital info, or book appointments dynamically.</p>
             </div>
           ) : (
             messages.map((msg) => (
@@ -447,7 +413,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
                       : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-none'
                   }`}
                 >
-                  <p>{msg.text}</p>
+                  <p className="leading-relaxed">{msg.text}</p>
                 </div>
                 <span className="text-[10px] text-slate-500 mt-1 px-1">{msg.timestamp}</span>
               </div>
@@ -457,7 +423,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Action Controls */}
-        <div className="p-4 bg-slate-900 border-t border-slate-800 flex items-center justify-around">
+        <div className="p-4 bg-slate-900 border-t border-slate-800 flex items-center justify-around flex-shrink-0">
           <button
             onClick={toggleMute}
             disabled={!isCalling}
@@ -466,6 +432,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
                 ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
                 : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
             } disabled:opacity-40 disabled:cursor-not-allowed`}
+            title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
           >
             {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
@@ -492,4 +459,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       </div>
     </div>
   );
+
+  return ReactDOM.createPortal(modalContent, document.body);
 };
+

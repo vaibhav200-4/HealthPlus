@@ -97,6 +97,7 @@ class GroqLLM:
             '  "doctor_name": "<doctor if explicitly mentioned, else null>",\n'
             '  "hospital_name": "<hospital if explicitly mentioned, else null>",\n'
             '  "specialization": "<specialty if mentioned, else null>",\n'
+            '  "location_query": "<city, area, or \\\'near me\\\' if asking for nearby/location search, else null>",\n'
             '  "appointment_date": "<date string or null>",\n'
             '  "appointment_time": "<time string or null>",\n'
             '  "patient_name": "<patient full name if providing personal details, else null>",\n'
@@ -104,11 +105,12 @@ class GroqLLM:
             '  "address": "<address if provided, else null>",\n'
             '  "confirmation": "<yes|no|null>"\n'
             "}\n\n"
-            "Intent values: greeting, book_appointment, list_hospitals, list_doctors, "
+            "Intent values: greeting, book_appointment, list_hospitals, list_doctors, nearby_search, "
             "doctor_information, specialization_information, fee_information, schedule_information, "
             "hospital_information, check_availability, check_appointment, cancel_appointment, "
             "cancel_booking_process, patient_navigation, unrelated.\n\n"
             "RULES:\n"
+            "- If the user asks to find hospitals, clinics, or doctors in/near a specific location or city (e.g. 'hospitals near me', 'doctors in Mumbai', 'clinics near Vijay Nagar', 'find cardiologists in Delhi'), set intent=nearby_search and set location_query to the city or area (e.g. 'Mumbai', 'Delhi', 'Vijay Nagar', 'near me').\n"
             f"- If the user describes a health concern (e.g. 'heart problem', 'stomach hurts') and asks which doctor/department to see, set intent=patient_navigation and set specialization to ONE of: {spec_list_str}.\n"
             "- Handle STT phonetic mishearings or typos for medical specialties: e.g., 'cardio movies', 'cardio logistics', 'bookend cardiologist', 'cardio' -> specialization='Cardiology'; 'derma' -> specialization='Dermatology'; 'ortho' -> specialization='Orthopaedics'. Map them to the closest standard specialization.\n"
             "- If the user asks whether a doctor is available on a date and time (e.g., 'Is Dr. X available tomorrow at 10 AM?', 'Will Dr. X be free?'), set intent=check_availability.\n"

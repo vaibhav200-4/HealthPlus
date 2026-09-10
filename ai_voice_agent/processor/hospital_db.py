@@ -1,7 +1,12 @@
 import os
 import sys
 import re
+import time
+import math
+import logging
 from datetime import datetime, timedelta
+
+logger = logging.getLogger("hospital_app.hospital_db")
 
 # Add backend directory to sys.path for importing SupabaseService & BookingService
 backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend"))
@@ -107,6 +112,13 @@ def warmup():
     except Exception as e:
         print(f"[DB ERROR] Warmup failed: {e}")
 
+def _is_test_hospital(hospital: dict) -> bool:
+    """Return True if the hospital record is a test entry."""
+    name = (hospital.get("hospital_name") or hospital.get("name") or "").strip().lower()
+    h_id = str(hospital.get("id") or "").lower()
+    return "test" in name or "h_test" in name or "h_test" in h_id
+
+
 def _is_test_doctor(doctor: dict) -> bool:
     """Return True if the doctor record is a test/dummy entry that should be hidden."""
     name = (doctor.get("name") or "").strip()
@@ -117,11 +129,9 @@ def _is_test_doctor(doctor: dict) -> bool:
         "dr bob",
     ]
     name_lower = name.lower()
-    # Check explicit test flags
     for flag in flags:
         if flag in name_lower:
             return True
-    # Check for random hex suffix appended by seed scripts (e.g. "ed8741", "316ae7")
     if re.search(r'\b[0-9a-f]{6}\b', name_lower):
         return True
     return False
@@ -129,7 +139,7 @@ def _is_test_doctor(doctor: dict) -> bool:
 
 def _get_hospital_map():
     hospitals = SupabaseService.get_records("hospitals")
-    return {h.get("id"): h.get("hospital_name") for h in hospitals if h.get("id")}
+    return {h.get("id"): h.get("hospital_name") for h in hospitals if h.get("id") and not _is_test_hospital(h)}
 
 def get_all_context_string():
     try:
@@ -138,6 +148,8 @@ def get_all_context_string():
         
         context = "AVAILABLE HOSPITALS:\n"
         for h in hospitals:
+            if _is_test_hospital(h):
+                continue
             h_name = h.get("hospital_name") or h.get("name", "Hospital")
             city = h.get("city") or h.get("area") or "Indore"
             context += f"- {h_name} (Location: {city})\n"
@@ -162,6 +174,8 @@ def get_hospitals():
     hospitals = SupabaseService.get_records("hospitals")
     result = []
     for h in hospitals:
+        if _is_test_hospital(h):
+            continue
         name = h.get("hospital_name") or h.get("name")
         address = ", ".join(filter(None, [h.get("street"), h.get("area"), h.get("city")])) or "Indore"
         if name:
@@ -479,3 +493,272 @@ def get_hospital_address(hospital_name):
     return (hospital_name, "HealthPlus Medical Center, City Campus")
 
 
+# ---------------------------------------------------------------------------
+# Dynamic search – real-world hospitals/clinics via Nominatim + Overpass API
+# These results are INFO-ONLY (not bookable through HealthPlus).
+# ---------------------------------------------------------------------------
+
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+OVERPASS_ENDPOINTS = [
+    # mail.ru mirror was the only one that reliably responded in production testing
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
+_GEOCODE_CACHE: dict = {}
+_OVERPASS_CACHE: dict = {}
+_CITY_SEARCH_CACHE: dict = {}
+_CACHE_TTL = 300  # 5 minutes
+
+
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in meters between two points."""
+    R = 6371000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dl / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def clean_location_string(raw: str) -> str:
+    if not raw:
+        return ""
+    text = str(raw).strip()
+    # Remove conversational leading phrases
+    text = re.sub(
+        r'^(?:i\s+am\s+located\s+in|located\s+in|my\s+location\s+is|i\s+live\s+in|location\s+is|in\s+|at\s+|near\s+)\s*',
+        '',
+        text,
+        flags=re.IGNORECASE
+    ).strip()
+    # Remove trailing punctuation
+    text = re.sub(r'[\.,!\?]+$', '', text).strip()
+    return text
+
+
+def geocode_location(query: str) -> dict | None:
+    """Geocode a city/area name to lat/lng using OpenStreetMap Nominatim.
+    Returns {"lat": float, "lng": float, "display_name": str} or None.
+    """
+    import httpx
+
+    query = clean_location_string(query)
+    clean_q = query.lower()
+    if not clean_q:
+        return None
+
+    now = time.time()
+    if clean_q in _GEOCODE_CACHE:
+        ts, data = _GEOCODE_CACHE[clean_q]
+        if now - ts < _CACHE_TTL:
+            return data
+
+    headers = {"User-Agent": "HealthPlus-VoiceAgent/1.0 (contact@healthplus.example)"}
+    params = {"q": query, "format": "json", "limit": 1}
+
+    try:
+        r = httpx.get(NOMINATIM_URL, params=params, headers=headers, timeout=3.0)
+        if r.status_code == 200:
+            results = r.json()
+            if results:
+                item = results[0]
+                data = {
+                    "lat": float(item["lat"]),
+                    "lng": float(item["lon"]),
+                    "display_name": item.get("display_name", query),
+                }
+                _GEOCODE_CACHE[clean_q] = (now, data)
+                return data
+    except Exception as e:
+        logger.warning(f"Geocode failed for '{query}': {e}")
+
+    return None
+
+
+def search_nearby_facilities(lat: float, lng: float, radius_m: int = 5000,
+                              specialty: str | None = None) -> list[dict]:
+    """Query Overpass API for real hospitals/clinics/doctors near coordinates.
+    Returns list of facility dicts sorted by distance. INFO-ONLY, not bookable.
+    """
+    import httpx
+
+    spec_key = (specialty or "").strip().lower()
+    cache_key = (round(lat, 3), round(lng, 3), radius_m, spec_key)
+    now = time.time()
+
+    if cache_key in _OVERPASS_CACHE:
+        ts, cached = _OVERPASS_CACHE[cache_key]
+        if now - ts < _CACHE_TTL:
+            return cached
+
+    # Targeted, fast query for medical facilities
+    overpass_query = f"""
+    [out:json][timeout:10];
+    (
+      node["amenity"~"doctors|clinic|hospital"](around:{radius_m},{lat},{lng});
+      way["amenity"~"doctors|clinic|hospital"](around:{radius_m},{lat},{lng});
+      node["healthcare"~"hospital|clinic|doctor|centre"](around:{radius_m},{lat},{lng});
+    );
+    out center 25;
+    """
+
+    headers = {"User-Agent": "HealthPlus-VoiceAgent/1.0 (contact@healthplus.example)"}
+    elements = []
+
+    for endpoint in OVERPASS_ENDPOINTS:
+        try:
+            r = httpx.post(endpoint, data={"data": overpass_query}, headers=headers, timeout=3.0)
+            if r.status_code == 200:
+                elements = r.json().get("elements", [])
+                if elements:
+                    break
+            else:
+                logger.warning(f"Overpass endpoint {endpoint} returned status {r.status_code}")
+        except Exception as e:
+            logger.warning(f"Overpass endpoint {endpoint} failed: {e}")
+
+    facilities = []
+
+    for el in elements:
+        tags = el.get("tags", {})
+        el_lat = el.get("lat") or el.get("center", {}).get("lat")
+        el_lng = el.get("lon") or el.get("center", {}).get("lon")
+        if el_lat is None or el_lng is None:
+            continue
+
+        # Skip pharmacies/drugstores — we only want hospitals, clinics, doctors
+        amenity_val = tags.get("amenity", "").lower()
+        healthcare_val = tags.get("healthcare", "").lower()
+        if amenity_val in ("pharmacy", "veterinary") or healthcare_val in ("pharmacy",):
+            continue
+
+        osm_spec = tags.get("healthcare:speciality") or tags.get("speciality") or amenity_val
+        raw_name = tags.get("name") or tags.get("name:en")
+        name = raw_name if raw_name else (f"Dr. {osm_spec.title()} Clinic" if osm_spec else "Medical Centre")
+
+        # Specialty filter
+        if spec_key:
+            combined = f"{osm_spec} {name} {tags.get('amenity', '')}".lower()
+            if spec_key not in combined:
+                continue
+
+        dist = _haversine(lat, lng, float(el_lat), float(el_lng))
+
+        phone = tags.get("phone") or tags.get("contact:phone") or tags.get("phone:mobile")
+
+        addr_parts = [
+            tags.get("addr:housenumber"),
+            tags.get("addr:street"),
+            tags.get("addr:suburb"),
+            tags.get("addr:city"),
+            tags.get("addr:postcode"),
+        ]
+        address = ", ".join(p for p in addr_parts if p) or tags.get("addr:full") or f"Near {name}"
+
+        facilities.append({
+            "name": name,
+            "specialty": (osm_spec or specialty or "General").replace("_", " ").title(),
+            "address": address,
+            "phone": phone,
+            "distance_meters": round(dist, 1),
+            "amenity_type": tags.get("amenity", "clinic").replace("_", " ").title(),
+            "bookable": False,
+        })
+
+    facilities.sort(key=lambda x: x["distance_meters"])
+    facilities = facilities[:20]
+
+    _OVERPASS_CACHE[cache_key] = (now, facilities)
+    return facilities
+
+
+def _search_facilities_nominatim(city_name: str, specialty: str | None = None) -> list[dict]:
+    """Fallback: query Nominatim POI search directly for medical facilities in city.
+    Calculates real Haversine distances from city center, deduplicates facility names,
+    and filters out non-medical nodes like highways/roads. Fast (<0.5s) and reliable.
+    """
+    import httpx
+
+    city_name = clean_location_string(city_name)
+    if not city_name:
+        return []
+
+    geo = geocode_location(city_name)
+    city_lat = geo["lat"] if geo else 19.0760
+    city_lng = geo["lng"] if geo else 72.8777
+
+    spec_str = f" {specialty}" if specialty else ""
+    query = f"hospitals{spec_str} in {city_name}"
+    headers = {"User-Agent": "HealthPlus-VoiceAgent/1.0 (contact@healthplus.example)"}
+    params = {"q": query, "format": "json", "limit": 20}
+    try:
+        r = httpx.get(NOMINATIM_URL, params=params, headers=headers, timeout=3.0)
+        if r.status_code == 200:
+            results = r.json()
+            facilities = []
+            seen_names = set()
+
+            for item in results:
+                display = item.get("display_name", "")
+                name = display.split(",")[0].strip() if display else f"Hospital in {city_name}"
+                if not name:
+                    continue
+
+                name_lower = name.lower()
+                # Skip roads, highways, junctions, flyovers
+                if any(w in name_lower for w in ("highway", "road", "expressway", "flyover", "marg", "naka", "bridge", "station", "junction")):
+                    continue
+
+                # Case-insensitive deduplication
+                clean_name_key = re.sub(r'[^a-z0-9]', '', name_lower)
+                if clean_name_key in seen_names:
+                    continue
+                seen_names.add(clean_name_key)
+
+                item_lat = float(item["lat"]) if "lat" in item else city_lat
+                item_lng = float(item["lon"]) if "lon" in item else city_lng
+                dist_m = _haversine(city_lat, city_lng, item_lat, item_lng)
+
+                facilities.append({
+                    "name": name,
+                    "specialty": specialty.title() if specialty else "General",
+                    "address": display or f"Near {city_name}",
+                    "phone": None,
+                    "distance_meters": round(dist_m, 1),
+                    "amenity_type": "Hospital",
+                    "bookable": False,
+                })
+
+            facilities.sort(key=lambda x: x["distance_meters"])
+            return facilities
+    except Exception as e:
+        logger.warning(f"Nominatim POI search fallback failed for '{city_name}': {e}")
+    return []
+
+
+def search_facilities_by_city(city_name: str, specialty: str | None = None) -> list[dict]:
+    """High-level: geocode a city name then search nearby facilities.
+    Main entry point for the voice agent's nearby_search intent.
+    Tries Nominatim POI search first for sub-second speed (<0.5s), with Overpass fallback.
+    """
+    city_name = clean_location_string(city_name)
+    if not city_name:
+        return []
+
+    cache_key = (city_name.lower(), (specialty or "").lower())
+    now = time.time()
+    if cache_key in _CITY_SEARCH_CACHE:
+        ts, cached = _CITY_SEARCH_CACHE[cache_key]
+        if now - ts < _CACHE_TTL:
+            return cached
+
+    facilities = _search_facilities_nominatim(city_name, specialty)
+    if not facilities:
+        geo = geocode_location(city_name)
+        if geo:
+            facilities = search_nearby_facilities(geo["lat"], geo["lng"], radius_m=10000, specialty=specialty)
+
+    if facilities:
+        _CITY_SEARCH_CACHE[cache_key] = (now, facilities)
+    return facilities
