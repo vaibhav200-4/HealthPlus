@@ -121,8 +121,7 @@ class SupabaseService:
                 return None
             except Exception as e:
                 logger.error(f"Error inserting into Supabase table {table}: {e}")
-                logger.critical(f"CRITICAL: Insert operation into table '{table}' failed! Refusing to return fake success data.")
-                return None
+                raise DatabaseError(f"Insert into table '{table}' failed: {e}") from e
         
         # Only use local store if client is explicitly not configured (offline local dev mode)
         logger.info(f"Insert operation into table '{table}' executing in offline _LOCAL_STORE mode.")

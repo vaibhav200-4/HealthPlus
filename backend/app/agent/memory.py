@@ -23,24 +23,6 @@ async def get_checkpointer() -> Any:
         logger.critical("CRITICAL: Production startup failed! Direct SUPABASE_DB_URL is required for LangGraph AsyncPostgresSaver.")
         raise RuntimeError("CRITICAL: Production startup failed! SUPABASE_DB_URL is required for LangGraph state checkpointer in production.")
 
-<<<<<<< HEAD
-    if db_url and (is_prod or sys.platform != "win32"):
-        try:
-            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-            from psycopg_pool import AsyncConnectionPool
-
-            conn_timeout = 30.0 if is_prod else 3.0
-            _pool = AsyncConnectionPool(conninfo=db_url, max_size=10, open=False, timeout=conn_timeout, kwargs={"autocommit": True})
-            await asyncio.wait_for(_pool.open(), timeout=conn_timeout)
-            _checkpointer = AsyncPostgresSaver(conn=_pool)
-            logger.info("LangGraph AsyncPostgresSaver checkpointer initialized.")
-            return _checkpointer
-        except Exception as e:
-            if is_prod:
-                logger.critical(f"CRITICAL: Failed to initialize AsyncPostgresSaver in production: {e}")
-                raise RuntimeError(f"CRITICAL: Production checkpointer initialization failed: {e}")
-            logger.warning(f"Failed to initialize AsyncPostgresSaver: {e}. Falling back to MemorySaver for local dev.")
-=======
     if db_url:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
         from psycopg_pool import AsyncConnectionPool
@@ -78,7 +60,6 @@ async def get_checkpointer() -> Any:
                         logger.critical(f"CRITICAL: Failed to initialize AsyncPostgresSaver in production after {max_attempts} attempts: {e}")
                         raise RuntimeError(f"CRITICAL: Production checkpointer initialization failed: {e}") from e
                     logger.warning(f"Failed to initialize AsyncPostgresSaver after {max_attempts} attempts: {e}. Falling back to MemorySaver for local dev.")
->>>>>>> 009684353c67d9fcc1d796756e2f832f5fbd0755
 
     logger.info("Using MemorySaver checkpointer for local development.")
     _checkpointer = MemorySaver()

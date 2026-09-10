@@ -1,13 +1,9 @@
 import asyncio
 import sys
+import os
 
 # On Windows, ProactorEventLoop has a known getaddrinfo/DNS resolution race condition
 # in asyncio socket operations under high concurrency. SelectorEventLoop resolves this cleanly.
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-import logging
-
 if sys.platform == "win32":
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -28,7 +24,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, location, voice
+from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, hospital_admin, episodes, telegram_webhook, sessions, prescriptions, medical_records, reviews, location, voice
 import uvicorn
 from app.database.supabase_client import SupabaseService, DatabaseError
 from app.agent.memory import setup_checkpointer
