@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { MedicalRecord, Appointment } from '../../types';
+import { MedicalRecord, Appointment, Episode } from '../../types';
 import { StatusBadge } from '../../components/doctor/StatusBadge';
 import { MarkdownRenderer } from '../../components/MarkdownRenderer';
 import {
@@ -23,7 +23,12 @@ import {
   Building,
   Heart,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Activity,
+  CheckSquare,
+  ChevronDown,
+  ChevronUp,
+  RotateCw
 } from 'lucide-react';
 
 export const DoctorPatientDetailPage: React.FC = () => {
@@ -36,10 +41,11 @@ export const DoctorPatientDetailPage: React.FC = () => {
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // AI Patient Summary State
-  const [summaryData, setSummaryData] = useState<{ summary: string; cached: boolean; generated_at: string } | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState<boolean>(false);
-  const [summaryError, setSummaryError] = useState<string>('');
+  // Episode & Summary State
+  const [activeEpisode, setActiveEpisode] = useState<Episode | null>(null);
+  const [pastEpisodes, setPastEpisodes] = useState<Episode[]>([]);
+  const [expandedEpisodeId, setExpandedEpisodeId] = useState<string | null>(null);
+  const [resolvingEpisode, setResolvingEpisode] = useState<boolean>(false);
 
   // Modal State
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
@@ -49,29 +55,25 @@ export const DoctorPatientDetailPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string>('');
-
-  const fetchSummary = async (targetId: string) => {
-    if (summaryLoading) return;
-    setSummaryLoading(true);
-    setSummaryError('');
-    try {
-      const res = await api.get(`/medical-records/patient/${targetId}/summary`);
-      if (res?.data) {
-        setSummaryData(res.data);
-      }
-    } catch (err: any) {
-      console.error('Failed to fetch AI Patient Summary:', err);
-      setSummaryError('Failed to load AI Patient Summary.');
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
+  const [retryingOcrId, setRetryingOcrId] = useState<string | null>(null);
 
   useEffect(() => {
     if (patientId) {
       fetchPatientData();
     }
   }, [patientId]);
+
+  const fetchEpisodes = async (targetId: string) => {
+    try {
+      const res = await api.get(`/episodes/patient/${targetId}`);
+      if (res?.data) {
+        setActiveEpisode(res.data.active_episode || null);
+        setPastEpisodes(res.data.past_episodes || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch patient episodes:', err);
+    }
+  };
 
   const fetchPatientData = async () => {
     setLoading(true);
@@ -85,7 +87,6 @@ export const DoctorPatientDetailPage: React.FC = () => {
         setPatientProfile(pData);
       }
 
-      // Collect all possible patient identifier aliases
       const targetIds = Array.from(
         new Set(
           [patientId, pData?.patient_id, pData?.profile_id].filter(
@@ -96,7 +97,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
 
       const primaryId = targetIds[0] || patientId || '';
       if (primaryId) {
-        fetchSummary(primaryId);
+        fetchEpisodes(primaryId);
       }
 
       const recordPromises = targetIds.map((id) =>
@@ -129,6 +130,54 @@ export const DoctorPatientDetailPage: React.FC = () => {
       console.error('Failed to load patient detail data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [refreshingSummary, setRefreshingSummary] = useState<boolean>(false);
+
+  const handleRefreshSummary = async (episodeId: string) => {
+    setRefreshingSummary(true);
+    try {
+      const res = await api.post(`/episodes/${episodeId}/summary/regenerate`);
+      if (res?.data?.summary && activeEpisode) {
+        setActiveEpisode({
+          ...activeEpisode,
+          summary: res.data.summary,
+          summary_generated_at: res.data.generated_at
+        });
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to refresh episode summary');
+    } finally {
+      setRefreshingSummary(false);
+    }
+  };
+
+  const handleResolveEpisode = async (episodeId: string) => {
+    if (!window.confirm('Mark this clinical episode as resolved? A new active episode will be initiated on next patient intake/upload.')) {
+      return;
+    }
+    setResolvingEpisode(true);
+    try {
+      await api.post(`/episodes/${episodeId}/resolve`);
+      const primaryId = patientProfile?.patient_id || patientId;
+      if (primaryId) fetchEpisodes(primaryId);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to resolve episode');
+    } finally {
+      setResolvingEpisode(false);
+    }
+  };
+
+  const handleRetryOcr = async (recordId: string) => {
+    setRetryingOcrId(recordId);
+    try {
+      await api.post(`/medical-records/${recordId}/retry-ocr`);
+      await fetchPatientData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to queue OCR retry');
+    } finally {
+      setRetryingOcrId(null);
     }
   };
 
@@ -242,7 +291,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
           }`}
         >
           <UserIcon className="w-4 h-4" />
-          Overview & Appointments ({appointments.length})
+          Overview & Episodes ({activeEpisode ? 1 : 0} Active)
         </button>
         <button
           onClick={() => setActiveTab('records')}
@@ -253,11 +302,11 @@ export const DoctorPatientDetailPage: React.FC = () => {
           }`}
         >
           <FileText className="w-4 h-4" />
-          Medical Records ({records.length})
+          Medical Records & OCR ({records.length})
         </button>
       </div>
 
-      {/* Tab 1: Overview */}
+      {/* Tab 1: Overview & Episodes */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Quick Info Grid */}
@@ -274,35 +323,20 @@ export const DoctorPatientDetailPage: React.FC = () => {
               </p>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-              <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Date of Birth</span>
-              <p className="text-sm font-extrabold text-slate-900">{patientProfile?.date_of_birth || 'Not recorded'}</p>
+              <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Active Episode</span>
+              <p className="text-sm font-extrabold text-tealmed-800 flex items-center gap-1">
+                <Activity className="w-4 h-4 text-tealmed-600" />
+                {activeEpisode?.condition || 'General Care'}
+              </p>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
               <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Consultations</span>
-              <p className="text-sm font-extrabold text-tealmed-800">{patientProfile?.consultation_count || appointments.length}</p>
+              <p className="text-sm font-extrabold text-slate-900">{patientProfile?.consultation_count || appointments.length}</p>
             </div>
           </div>
 
-          {/* Address & Emergency Contact */}
-          {(patientProfile?.address || patientProfile?.emergency_contact) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {patientProfile?.address && (
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-                  <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Address</span>
-                  <p className="text-xs font-medium text-slate-800">{patientProfile.address}</p>
-                </div>
-              )}
-              {patientProfile?.emergency_contact && (
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-                  <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Emergency Contact</span>
-                  <p className="text-xs font-medium text-slate-800">{patientProfile.emergency_contact}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* AI Patient Summary Card */}
-          <div className="bg-gradient-to-br from-teal-50/60 via-white to-emerald-50/40 rounded-3xl border border-tealmed-200/80 p-6 sm:p-8 shadow-2xs space-y-4">
+          {/* Headline Active Episode Summary Card */}
+          <div className="bg-gradient-to-br from-teal-50/70 via-white to-emerald-50/50 rounded-3xl border border-tealmed-200/90 p-6 sm:p-8 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-tealmed-100/80 pb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-tealmed-600 text-white flex items-center justify-center shadow-md shadow-tealmed-600/20">
@@ -310,65 +344,100 @@ export const DoctorPatientDetailPage: React.FC = () => {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-base font-extrabold text-slate-900">AI Patient Summary</h3>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-tealmed-100 text-tealmed-900 border border-tealmed-200 uppercase tracking-wider">
-                      AI Generated
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      Active Episode: {activeEpisode?.condition || 'General Health Care'}
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-200 uppercase tracking-wider">
+                      Active Episode
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    {summaryData?.generated_at ? (
-                      <>Updated: {new Date(summaryData.generated_at).toLocaleString()}{summaryData.cached ? ' (Cached)' : ''}</>
-                    ) : (
-                      'Synthesized clinical overview'
-                    )}
+                    Started: {activeEpisode?.started_at ? new Date(activeEpisode.started_at).toLocaleDateString() : 'Recent'}
+                    {activeEpisode?.summary_generated_at ? ` • Summary updated ${new Date(activeEpisode.summary_generated_at).toLocaleTimeString()}` : ''}
                   </p>
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  const primaryId = patientProfile?.patient_id || patientId;
-                  if (primaryId) fetchSummary(primaryId);
-                }}
-                disabled={summaryLoading}
-                className="inline-flex items-center gap-2 text-xs font-bold text-tealmed-800 bg-white hover:bg-tealmed-50 px-3.5 py-2 rounded-2xl border border-tealmed-200 shadow-2xs transition-all disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 text-tealmed-700 ${summaryLoading ? 'animate-spin' : ''}`} />
-                {summaryLoading ? 'Refreshing...' : 'Refresh Summary'}
-              </button>
+              {activeEpisode && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleRefreshSummary(activeEpisode.id)}
+                    disabled={refreshingSummary}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-tealmed-800 bg-white hover:bg-tealmed-50 px-3.5 py-2 rounded-2xl border border-tealmed-200 shadow-2xs transition-all disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-tealmed-600 ${refreshingSummary ? 'animate-spin' : ''}`} />
+                    {refreshingSummary ? 'Refreshing...' : 'Refresh AI Summary'}
+                  </button>
+
+                  <button
+                    onClick={() => handleResolveEpisode(activeEpisode.id)}
+                    disabled={resolvingEpisode}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 bg-white hover:bg-rose-50 px-3.5 py-2 rounded-2xl border border-rose-200 shadow-2xs transition-all disabled:opacity-50"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 text-rose-600" />
+                    {resolvingEpisode ? 'Resolving...' : 'Mark Episode Resolved'}
+                  </button>
+                </div>
+              )}
             </div>
 
-            {summaryLoading && !summaryData ? (
-              <div className="p-8 text-center text-slate-500 flex flex-col items-center gap-2">
-                <div className="w-6 h-6 border-2 border-tealmed-600 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-xs font-semibold">Synthesizing clinical summary...</span>
-              </div>
-            ) : summaryError ? (
-              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center justify-between font-medium">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                  <span>{summaryError}</span>
-                </div>
-                <button
-                  onClick={() => {
-                    const primaryId = patientProfile?.patient_id || patientId;
-                    if (primaryId) fetchSummary(primaryId);
-                  }}
-                  className="px-3 py-1 bg-white border border-rose-200 text-rose-700 rounded-xl text-xs font-bold hover:bg-rose-100/50"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : summaryData?.summary ? (
+            {activeEpisode?.summary ? (
               <div className="bg-white/80 p-6 rounded-2xl border border-tealmed-100/70 shadow-2xs">
-                <MarkdownRenderer content={summaryData.summary} />
+                <MarkdownRenderer content={activeEpisode.summary} />
               </div>
             ) : (
               <div className="p-6 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500">
-                Not available. No clinical summary generated yet.
+                No OCR-extracted summary available yet for this episode. Upload medical documents or chat with AI assistant to synthesize an episode summary.
               </div>
             )}
           </div>
+
+          {/* Past Resolved Episodes Accordion */}
+          {pastEpisodes.length > 0 && (
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-slate-500" /> Past Resolved Episodes ({pastEpisodes.length})
+              </h3>
+
+              <div className="space-y-3">
+                {pastEpisodes.map((ep) => {
+                  const isExpanded = expandedEpisodeId === ep.id;
+                  return (
+                    <div key={ep.id} className="border border-slate-200 rounded-2xl overflow-hidden">
+                      <button
+                        onClick={() => setExpandedEpisodeId(isExpanded ? null : ep.id)}
+                        className="w-full p-4 bg-slate-50 hover:bg-slate-100/80 flex items-center justify-between transition-colors text-left"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-xs text-slate-900">{ep.condition}</div>
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            Duration: {new Date(ep.started_at).toLocaleDateString()} - {ep.resolved_at ? new Date(ep.resolved_at).toLocaleDateString() : 'Resolved'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded-full">
+                            Resolved
+                          </span>
+                          {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="p-5 bg-white border-t border-slate-100 text-xs space-y-2">
+                          <div className="font-semibold text-slate-700">Archived Episode Summary:</div>
+                          {ep.summary ? (
+                            <MarkdownRenderer content={ep.summary} />
+                          ) : (
+                            <p className="text-slate-400 italic">No summary archived for this episode.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Appointment History */}
           <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">
@@ -411,16 +480,16 @@ export const DoctorPatientDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 2: Medical Records */}
+      {/* Tab 2: Medical Records & OCR */}
       {activeTab === 'records' && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs">
             <div>
               <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-emerald-600" /> Scoped Medical Records
+                <FileText className="w-5 h-5 text-emerald-600" /> Scoped Medical Records & OCR
               </h2>
               <p className="text-xs text-slate-500">
-                Medical reports, lab scans, and diagnostic documents attached to {pName}.
+                Medical reports, lab scans, and document OCR extractions for {pName}.
               </p>
             </div>
             <button
@@ -444,47 +513,83 @@ export const DoctorPatientDetailPage: React.FC = () => {
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {records.map((r) => (
-                <div key={r.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs space-y-4 hover:shadow-md transition-all">
-                  <div className="flex justify-between items-start">
-                    <span className="text-[10px] font-extrabold px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-full uppercase tracking-wider border border-emerald-100">
-                      {r.record_type ? r.record_type.replace('_', ' ') : 'Record'}
-                    </span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      r.uploaded_by === 'doctor' ? 'bg-indigo-50 text-indigo-800 border border-indigo-100' : 'bg-sky-50 text-sky-800 border border-sky-100'
-                    }`}>
-                      Uploaded by {r.uploaded_by || 'patient'}
-                    </span>
-                  </div>
+              {records.map((r) => {
+                const ocrStatus = r.ocr_status || 'completed';
+                return (
+                  <div key={r.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs space-y-4 hover:shadow-md transition-all flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-extrabold px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-full uppercase tracking-wider border border-emerald-100">
+                          {r.record_type ? r.record_type.replace('_', ' ') : 'Record'}
+                        </span>
+                        
+                        {/* OCR Status Badge */}
+                        {ocrStatus === 'completed' && (
+                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-full flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> OCR Ready
+                          </span>
+                        )}
+                        {ocrStatus === 'pending' && (
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold rounded-full flex items-center gap-1">
+                            <RotateCw className="w-3 h-3 text-amber-600 animate-spin" /> Processing OCR
+                          </span>
+                        )}
+                        {ocrStatus === 'failed' && (
+                          <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold rounded-full flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 text-rose-600" /> OCR Failed
+                          </span>
+                        )}
+                      </div>
 
-                  <div>
-                    <h4 className="font-extrabold text-slate-900 text-base">{r.title}</h4>
-                    {r.description && <p className="text-slate-600 text-xs mt-1 leading-relaxed">{r.description}</p>}
-                  </div>
+                      <div>
+                        <h4 className="font-extrabold text-slate-900 text-base">{r.title}</h4>
+                        {r.description && <p className="text-slate-600 text-xs mt-1 leading-relaxed">{r.description}</p>}
+                      </div>
 
-                  <div className="space-y-2 pt-3 border-t border-slate-100 text-xs">
-                    <div className="flex items-center justify-between text-slate-500 font-medium">
-                      <span>Date: {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recent'}</span>
-                      {r.file_size_bytes && (
-                        <span>{(r.file_size_bytes / 1024).toFixed(0)} KB</span>
+                      {/* OCR Extracted Text Preview */}
+                      {r.extracted_text && (
+                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 text-[11px] text-slate-600 max-h-24 overflow-y-auto space-y-1">
+                          <div className="font-bold text-slate-800 text-[10px] uppercase tracking-wider">Extracted OCR Text:</div>
+                          <p className="whitespace-pre-wrap">{r.extracted_text}</p>
+                        </div>
                       )}
                     </div>
 
-                    {r.signed_file_url ? (
-                      <a
-                        href={r.signed_file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-2xl flex items-center justify-center gap-1.5 border border-emerald-200/80 transition-colors"
-                      >
-                        <ShieldCheck className="w-4 h-4 text-emerald-700" /> View / Download File <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    ) : (
-                      <span className="text-slate-400 text-xs italic block text-center py-1">No attached document URL</span>
-                    )}
+                    <div className="space-y-2 pt-3 border-t border-slate-100 text-xs">
+                      <div className="flex items-center justify-between text-slate-500 font-medium">
+                        <span>Date: {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recent'}</span>
+                        {r.file_size_bytes && (
+                          <span>{(r.file_size_bytes / 1024).toFixed(0)} KB</span>
+                        )}
+                      </div>
+
+                      {ocrStatus === 'failed' && (
+                        <button
+                          onClick={() => handleRetryOcr(r.id)}
+                          disabled={retryingOcrId === r.id}
+                          className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1 border border-rose-200 transition-colors"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 text-rose-600 ${retryingOcrId === r.id ? 'animate-spin' : ''}`} />
+                          <span>{retryingOcrId === r.id ? 'Queuing Retry...' : 'Retry OCR Processing'}</span>
+                        </button>
+                      )}
+
+                      {r.signed_file_url ? (
+                        <a
+                          href={r.signed_file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-2xl flex items-center justify-center gap-1.5 border border-emerald-200/80 transition-colors"
+                        >
+                          <ShieldCheck className="w-4 h-4 text-emerald-700" /> View / Download File <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 text-xs italic block text-center py-1">No attached document URL</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

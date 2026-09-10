@@ -5,7 +5,7 @@ import time
 import uuid
 import jwt
 from typing import Dict, Any, Optional
-from fastapi import HTTPException, Security, Depends, status, Header
+from fastapi import HTTPException, Security, Depends, status, Header, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
 from app.config import settings
@@ -108,8 +108,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(securi
             "id": user_id,
             "email": payload.get("email"),
             "role": payload.get("role", "user"),
-            "name": payload.get("email", "").split("@")[0]
+            "name": payload.get("email", "").split("@")[0],
+            "hospital_id": payload.get("hospital_id")
         }
+    else:
+        if "hospital_id" not in profile or not profile.get("hospital_id"):
+            if payload.get("hospital_id"):
+                profile["hospital_id"] = payload.get("hospital_id")
     return profile
 
 def get_identity_context(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
@@ -208,6 +213,42 @@ def get_admin_user(current_user: Dict[str, Any] = Depends(get_current_user)) -> 
             detail="Admin privileges required"
         )
     return current_user
+
+def get_hospital_admin_user(
+    hospital_id: Optional[str] = Query(None, description="Optional hospital_id for super_admin override"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    user_role = current_user.get("role")
+    if user_role not in ["hospital_admin", "admin", "super_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hospital admin privileges required"
+        )
+    
+    target_hospital_id = None
+    if user_role == "hospital_admin":
+        target_hospital_id = current_user.get("hospital_id")
+        if not target_hospital_id:
+            try:
+                mems = SupabaseService.get_records("hospital_members", {"user_id": current_user["id"]})
+                if mems:
+                    target_hospital_id = mems[0].get("hospital_id")
+            except Exception:
+                pass
+    else:
+        # Master Admin / Super Admin oversight: require explicit hospital_id query parameter or profile setting
+        target_hospital_id = hospital_id or current_user.get("hospital_id")
+
+    if not target_hospital_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hospital ID is required to scope this request. Please specify hospital_id."
+        )
+
+    user_copy = dict(current_user)
+    user_copy["hospital_id"] = target_hospital_id
+    return user_copy
+
 
 def get_doctor_user(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if current_user.get("role") not in ["doctor", "super_admin"]:

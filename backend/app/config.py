@@ -33,16 +33,16 @@ class Settings:
     ]
     ALLOWED_ORIGIN_REGEX: str = os.getenv("ALLOWED_ORIGIN_REGEX", r"https://.*\.vercel\.app")
 
-    # Supabase Credentials
+    # Supabase Credentials & Database Connection
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    SUPABASE_DB_URL: str = os.getenv("SUPABASE_DB_URL", "")
+    SUPABASE_DB_URL: str = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL", "")
+    DATABASE_URL: str = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL", "")
 
     # Security & Secrets
     JWT_SECRET: str = os.getenv("JWT_SECRET", "super-secret-jwt-key-for-hospital-app-2026")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    N8N_JWT_SECRET: str = os.getenv("N8N_JWT_SECRET", "super-secret-n8n-tool-context-key-2026")
     VOICE_SERVICE_SECRET: str = os.getenv("VOICE_SERVICE_SECRET", "super-secret-voice-service-key-2026")
     TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "super-secret-telegram-webhook-key-2026")
     ENABLE_TELEGRAM_HMAC_VERIFICATION: bool = os.getenv("ENABLE_TELEGRAM_HMAC_VERIFICATION", "false").lower() == "true"

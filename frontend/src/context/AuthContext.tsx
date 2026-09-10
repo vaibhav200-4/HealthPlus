@@ -19,6 +19,7 @@ interface AuthContextType {
   }) => Promise<boolean>;
   logout: () => void;
   isAdmin: boolean;
+  isHospitalAdmin: boolean;
   isDoctor: boolean;
   isPatient: boolean;
 }
@@ -110,6 +111,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = () => {
     localStorage.removeItem('hospital_auth_token');
+    localStorage.removeItem('hospital_chat_session');
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith('hospital_chat_session')) {
+        localStorage.removeItem(key);
+      }
+    });
     setToken(null);
     setUser(null);
   };
@@ -125,7 +132,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         linkTelegram,
         updateProfile,
         logout,
-        isAdmin: user?.role === 'admin',
+        isAdmin: user?.role === 'admin' || user?.role === 'super_admin',
+        isHospitalAdmin: user?.role === 'hospital_admin',
         isDoctor: user?.role === 'doctor',
         isPatient: user?.role === 'user' || user?.role === 'patient'
       }}

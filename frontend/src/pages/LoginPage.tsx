@@ -25,8 +25,10 @@ export const LoginPage: React.FC = () => {
       // Fetch authenticated user from localStorage token or AuthContext role if available
       try {
         const payload = JSON.parse(atob(localStorage.getItem('hospital_auth_token')?.split('.')[1] || '{}'));
-        if (payload.role === 'admin') {
+        if (payload.role === 'admin' || payload.role === 'super_admin') {
           navigate('/admin');
+        } else if (payload.role === 'hospital_admin') {
+          navigate('/hospital-admin');
         } else if (payload.role === 'doctor') {
           navigate('/doctor/dashboard');
         } else {

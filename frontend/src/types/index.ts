@@ -4,7 +4,8 @@ export interface User {
   email: string;
   phone?: string;
   telegram_id?: string;
-  role: 'user' | 'patient' | 'doctor' | 'staff' | 'admin' | 'super_admin';
+  role: 'user' | 'patient' | 'doctor' | 'staff' | 'admin' | 'super_admin' | 'hospital_admin';
+  hospital_id?: string;
   patient_code?: string;
   date_of_birth?: string;
   gender?: string;
@@ -135,7 +136,25 @@ export interface MedicalRecord {
   uploaded_by?: 'patient' | 'doctor' | 'admin';
   file_type?: string;
   file_size_bytes?: number;
+  episode_id?: string;
+  ocr_status?: 'pending' | 'completed' | 'failed';
+  extracted_text?: string;
+  ocr_processed_at?: string;
   created_at?: string;
+}
+
+export interface Episode {
+  id: string;
+  patient_id: string;
+  condition: string;
+  started_at: string;
+  resolved_at?: string;
+  status: 'active' | 'resolved';
+  summary?: string;
+  summary_generated_at?: string;
+  summary_source_record_ids?: string[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface DoctorReview {
