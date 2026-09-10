@@ -39,6 +39,14 @@ import { AdminAppointmentsPage } from './pages/AdminAppointmentsPage';
 import { AdminUsersPage } from './pages/AdminUsersPage';
 import { AdminChatPage } from './pages/AdminChatPage';
 
+// Hospital Admin Pages
+import { HospitalAdminDashboardPage } from './pages/hospital_admin/HospitalAdminDashboardPage';
+import { HospitalAdminDoctorsPage } from './pages/hospital_admin/HospitalAdminDoctorsPage';
+import { HospitalAdminDepartmentsPage } from './pages/hospital_admin/HospitalAdminDepartmentsPage';
+import { HospitalAdminSchedulesPage } from './pages/hospital_admin/HospitalAdminSchedulesPage';
+import { HospitalAdminAppointmentsPage } from './pages/hospital_admin/HospitalAdminAppointmentsPage';
+import { HospitalAdminProfilePage } from './pages/hospital_admin/HospitalAdminProfilePage';
+
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
@@ -64,6 +72,13 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAdmin, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
   if (!user || !isAdmin) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+
+const HospitalAdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isHospitalAdmin, isAdmin, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
+  if (!user || (!isHospitalAdmin && !isAdmin)) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
@@ -105,6 +120,14 @@ export const AppContent: React.FC = () => {
           <Route path="/admin/appointments" element={<AdminRoute><AdminAppointmentsPage /></AdminRoute>} />
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
           <Route path="/admin/chats" element={<AdminRoute><AdminChatPage /></AdminRoute>} />
+
+          {/* Hospital Admin Protected Routes */}
+          <Route path="/hospital-admin" element={<HospitalAdminRoute><HospitalAdminDashboardPage /></HospitalAdminRoute>} />
+          <Route path="/hospital-admin/doctors" element={<HospitalAdminRoute><HospitalAdminDoctorsPage /></HospitalAdminRoute>} />
+          <Route path="/hospital-admin/departments" element={<HospitalAdminRoute><HospitalAdminDepartmentsPage /></HospitalAdminRoute>} />
+          <Route path="/hospital-admin/schedules" element={<HospitalAdminRoute><HospitalAdminSchedulesPage /></HospitalAdminRoute>} />
+          <Route path="/hospital-admin/appointments" element={<HospitalAdminRoute><HospitalAdminAppointmentsPage /></HospitalAdminRoute>} />
+          <Route path="/hospital-admin/profile" element={<HospitalAdminRoute><HospitalAdminProfilePage /></HospitalAdminRoute>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

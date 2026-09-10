@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 
 class UserRegister(BaseModel):
     name: str
@@ -19,6 +19,7 @@ class UserProfile(BaseModel):
     phone: Optional[str] = None
     telegram_id: Optional[str] = None
     role: str = "user"
+    hospital_id: Optional[str] = None
     patient_code: Optional[str] = None
     date_of_birth: Optional[str] = None
     gender: Optional[str] = None
@@ -26,6 +27,15 @@ class UserProfile(BaseModel):
     address: Optional[str] = None
     emergency_contact: Optional[str] = None
     created_at: Optional[str] = None
+
+class HospitalAdminCreate(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = None
+
+class HospitalAdminResponse(BaseModel):
+    has_admin: bool
+    admin_user: Optional[Dict[str, Any]] = None
 
 class PatientProfileUpdate(BaseModel):
     phone: Optional[str] = None
@@ -43,3 +53,4 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserProfile
+

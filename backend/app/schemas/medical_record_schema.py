@@ -16,6 +16,10 @@ class MedicalRecordBase(BaseModel):
     uploaded_by: Optional[str] = "patient"
     file_type: Optional[str] = None
     file_size_bytes: Optional[int] = None
+    episode_id: Optional[str] = None
+    ocr_status: Optional[str] = "pending"
+    extracted_text: Optional[str] = None
+    ocr_processed_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

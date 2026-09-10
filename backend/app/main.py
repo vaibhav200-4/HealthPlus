@@ -8,12 +8,13 @@ if sys.platform == "win32":
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, telegram_webhook, sessions, prescriptions, medical_records, reviews, location
+from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, hospital_admin, episodes, telegram_webhook, sessions, prescriptions, medical_records, reviews, location
 import uvicorn
-from app.database.supabase_client import SupabaseService
+from app.database.supabase_client import SupabaseService, DatabaseError
 from app.agent.memory import setup_checkpointer
 
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +41,14 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+@app.exception_handler(DatabaseError)
+async def database_error_handler(request: Request, exc: DatabaseError):
+    logger.error(f"Database error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Database operation failed: {str(exc)}"}
+    )
 
 # Configure CORS explicitly for configured origins and Vercel domains
 app.add_middleware(
@@ -68,6 +77,8 @@ app.include_router(reviews.router)
 app.include_router(chat.router)
 app.include_router(telegram_webhook.router)
 app.include_router(admin.router)
+app.include_router(hospital_admin.router)
+app.include_router(episodes.router)
 
 @app.get("/health")
 def health_check():

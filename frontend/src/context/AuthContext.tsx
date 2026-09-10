@@ -19,6 +19,7 @@ interface AuthContextType {
   }) => Promise<boolean>;
   logout: () => void;
   isAdmin: boolean;
+  isHospitalAdmin: boolean;
   isDoctor: boolean;
   isPatient: boolean;
 }
@@ -131,7 +132,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         linkTelegram,
         updateProfile,
         logout,
-        isAdmin: user?.role === 'admin',
+        isAdmin: user?.role === 'admin' || user?.role === 'super_admin',
+        isHospitalAdmin: user?.role === 'hospital_admin',
         isDoctor: user?.role === 'doctor',
         isPatient: user?.role === 'user' || user?.role === 'patient'
       }}

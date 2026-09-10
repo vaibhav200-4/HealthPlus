@@ -58,6 +58,7 @@ def build_user_profile_response(user_data: dict) -> UserProfile:
         phone=user_data.get("phone"),
         telegram_id=user_data.get("telegram_id"),
         role=role,
+        hospital_id=user_data.get("hospital_id"),
         patient_code=patient_code,
         date_of_birth=str(dob) if dob else None,
         gender=gender,
@@ -131,10 +132,21 @@ def login_user(data: UserLogin, request: Request = None):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     role = user_profile.get("role", "user")
+    h_id = user_profile.get("hospital_id")
+    if not h_id and role == "hospital_admin":
+        try:
+            mems = SupabaseService.get_records("hospital_members", {"user_id": user_profile["id"]})
+            if mems:
+                h_id = mems[0].get("hospital_id")
+                user_profile["hospital_id"] = h_id
+        except Exception:
+            pass
+
     token = create_access_token(
         user_id=user_profile["id"],
         email=user_profile["email"],
-        role=role
+        role=role,
+        hospital_id=h_id
     )
 
     return AuthResponse(

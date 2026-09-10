@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 
 class HospitalBase(BaseModel):
@@ -13,6 +13,13 @@ class HospitalBase(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     departments: List[str] = []
+
+    @field_validator('departments', mode='before')
+    @classmethod
+    def normalize_departments(cls, v):
+        if v is None:
+            return []
+        return v
 
 class HospitalCreate(HospitalBase):
     pass

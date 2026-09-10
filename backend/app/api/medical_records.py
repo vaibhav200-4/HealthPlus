@@ -3,12 +3,14 @@ import uuid
 import time
 import logging
 import jwt
-from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, Form, Header
+from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, Form, Header, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from app.schemas.medical_record_schema import MedicalRecordBase, MedicalRecordCreate
 from app.database.supabase_client import SupabaseService, get_supabase_client
 from app.auth.auth_handler import get_identity_context, get_doctor_user
 from app.config import settings
+from app.services.episode_service import EpisodeService
+from app.services.ocr_service import OCRService
 
 router = APIRouter(prefix="/api/medical-records", tags=["Medical Records"])
 logger = logging.getLogger("hospital_app.api.medical_records")
@@ -98,6 +100,7 @@ async def _notify_agent_of_upload(session_id: Optional[str], record_type: str, t
 
 @router.post("/upload", response_model=MedicalRecordBase)
 async def upload_medical_record(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     patient_identifier: str = Form(...),
     uploaded_by: str = Form("patient"),
@@ -185,6 +188,10 @@ async def upload_medical_record(
 
     target_patient_id = resolve_patient_id(patient_identifier)
 
+    # Resolve active clinical episode for patient
+    active_episode = EpisodeService.get_or_create_active_episode(target_patient_id)
+    episode_id = active_episode.get("id") if active_episode else None
+
     rec_id = str(uuid.uuid4())
     storage_path = f"{target_patient_id}/{rec_id}.{ext}"
 
@@ -214,17 +221,24 @@ async def upload_medical_record(
         "patient_id": target_patient_id,
         "doctor_id": doctor_id,
         "session_id": session_id_for_db,
+        "episode_id": episode_id,
         "record_type": final_record_type,
         "title": title,
         "description": description or "",
         "file_url": storage_path,
         "uploaded_by": uploaded_by,
         "file_type": ext,
-        "file_size_bytes": file_size
+        "file_size_bytes": file_size,
+        "ocr_status": "pending",
+        "extracted_text": None,
+        "ocr_processed_at": None
     }
 
     created = SupabaseService.insert_record("medical_records", record_data)
     signed_url = generate_signed_url(storage_path)
+
+    # Dispatch non-blocking background task for OCR extraction
+    background_tasks.add_task(OCRService.process_record_ocr, rec_id)
 
     # Only notify the agent when the client explicitly says this came from an
     # active chat session — NOT inferred from uploaded_by/session_id alone, since
@@ -244,6 +258,7 @@ async def upload_medical_record(
         doctor_id=doctor_id,
         doctor_name=d_rec.get("name") if d_rec else ("Doctor" if uploaded_by == "doctor" else None),
         session_id=session_id,
+        episode_id=episode_id,
         record_type=final_record_type,
         title=title,
         description=description,
@@ -252,6 +267,9 @@ async def upload_medical_record(
         uploaded_by=uploaded_by,
         file_type=ext,
         file_size_bytes=file_size,
+        ocr_status="pending",
+        extracted_text=None,
+        ocr_processed_at=None,
         created_at=created.get("created_at")
     )
 
@@ -296,6 +314,7 @@ def get_patient_medical_records(patient_id: str, identity: dict = Depends(get_id
             doctor_id=r.get("doctor_id"),
             doctor_name=d_rec.get("name") if d_rec else None,
             session_id=r.get("session_id"),
+            episode_id=r.get("episode_id"),
             record_type=r.get("record_type", "other"),
             title=r.get("title", "Medical Record"),
             description=r.get("description"),
@@ -304,6 +323,9 @@ def get_patient_medical_records(patient_id: str, identity: dict = Depends(get_id
             uploaded_by=r.get("uploaded_by", "patient"),
             file_type=r.get("file_type"),
             file_size_bytes=r.get("file_size_bytes"),
+            ocr_status=r.get("ocr_status", "pending"),
+            extracted_text=r.get("extracted_text"),
+            ocr_processed_at=r.get("ocr_processed_at"),
             created_at=r.get("created_at")
         ))
 
@@ -410,6 +432,7 @@ def get_medical_records(identity: dict = Depends(get_identity_context), patient_
             doctor_id=r.get("doctor_id"),
             doctor_name=d_rec.get("name") if d_rec else "Doctor",
             session_id=r.get("session_id"),
+            episode_id=r.get("episode_id"),
             record_type=r.get("record_type", "other"),
             title=r.get("title", "Medical Record"),
             description=r.get("description"),
@@ -418,6 +441,9 @@ def get_medical_records(identity: dict = Depends(get_identity_context), patient_
             uploaded_by=r.get("uploaded_by", "patient"),
             file_type=r.get("file_type"),
             file_size_bytes=r.get("file_size_bytes"),
+            ocr_status=r.get("ocr_status", "pending"),
+            extracted_text=r.get("extracted_text"),
+            ocr_processed_at=r.get("ocr_processed_at"),
             created_at=r.get("created_at")
         ))
 
@@ -447,6 +473,7 @@ def get_medical_record_by_id(record_id: str, identity: dict = Depends(get_identi
         doctor_id=r.get("doctor_id"),
         doctor_name=d_rec.get("name") if d_rec else "Doctor",
         session_id=r.get("session_id"),
+        episode_id=r.get("episode_id"),
         record_type=r.get("record_type", "other"),
         title=r.get("title", "Medical Record"),
         description=r.get("description"),
@@ -455,5 +482,18 @@ def get_medical_record_by_id(record_id: str, identity: dict = Depends(get_identi
         uploaded_by=r.get("uploaded_by", "patient"),
         file_type=r.get("file_type"),
         file_size_bytes=r.get("file_size_bytes"),
+        ocr_status=r.get("ocr_status", "pending"),
+        extracted_text=r.get("extracted_text"),
+        ocr_processed_at=r.get("ocr_processed_at"),
         created_at=r.get("created_at")
     )
+
+@router.post("/{record_id}/retry-ocr")
+def retry_record_ocr(record_id: str, background_tasks: BackgroundTasks, identity: dict = Depends(get_identity_context)):
+    rec = SupabaseService.get_record_by_id("medical_records", record_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Medical record not found")
+    
+    SupabaseService.update_record("medical_records", record_id, {"ocr_status": "pending"})
+    background_tasks.add_task(OCRService.process_record_ocr, record_id)
+    return {"success": True, "message": "OCR retry task queued successfully", "record_id": record_id}

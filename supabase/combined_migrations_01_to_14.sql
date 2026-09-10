@@ -8,18 +8,20 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- 1. Profiles Table
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    hospital_id TEXT,
     name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT,
     phone TEXT,
     telegram_id TEXT UNIQUE,
-    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('patient', 'user', 'doctor', 'staff', 'admin', 'super_admin')),
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('patient', 'user', 'doctor', 'staff', 'admin', 'super_admin', 'hospital_admin')),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS hospital_id TEXT REFERENCES public.hospitals(id) ON DELETE SET NULL;
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
 ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check 
-    CHECK (role IN ('patient', 'user', 'doctor', 'staff', 'admin', 'super_admin'));
+    CHECK (role IN ('patient', 'user', 'doctor', 'staff', 'admin', 'super_admin', 'hospital_admin'));
 
 -- 2. Hospitals Table
 CREATE TABLE IF NOT EXISTS public.hospitals (

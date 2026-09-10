@@ -1,8 +1,8 @@
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Dict, Any, Literal, Optional
-from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END, START
@@ -21,8 +21,42 @@ from app.services.patient_service import PatientService
 
 logger = logging.getLogger("hospital_app.agent.graph")
 
+# All nodes bind this SAME full tool list, regardless of which tools that stage
+# is "meant" to use. Reasoning: state["messages"] is one shared, ever-growing
+# history across every stage (router/qa/booking/intake all append to it via
+# add_messages). If node A calls tools=[search_doctors] and node B later calls
+# tools=[save_intake_note] on that same growing history, the model can see its
+# own earlier search_doctors tool_call in history and try to repeat it — but
+# Groq validates generated tool calls strictly against the CURRENT request's
+# tools list and 400s on any name it wasn't told about. Binding the full set
+# everywhere removes this whole class of provider-validation failure; which
+# tool actually gets used per stage is steered by the system prompt instead.
+ALL_TOOLS = [search_doctors, get_hospital_info, check_availability, book_appointment, save_intake_note]
+
 MAX_HISTORY_MESSAGES = 20  # trim before every LLM call so long threads don't dilute the current turn
 CLASSIFIER_FAILURE_COUNT = 0
+STAGE_VALUES = {"qa", "booking"}
+
+
+def _parse_stage_output(raw_text: str) -> Optional[str]:
+    """Tolerantly extracts {"stage": "qa"|"booking"} from raw LLM text output.
+    Works identically regardless of provider (NVIDIA, Gemini, anything else) since
+    it only depends on plain .ainvoke() text output, not any provider-specific
+    structured-output or function-calling implementation."""
+    if not raw_text:
+        return None
+    text = raw_text.strip()
+    # strip ```json ... ``` or ``` ... ``` fences some models wrap output in
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE).strip()
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except Exception:
+        return None
+    stage = str(data.get("stage", "")).strip().lower()
+    return stage if stage in STAGE_VALUES else None
 
 
 def _normalize_message_content(m: Any, index: Optional[int] = None) -> Any:
@@ -47,29 +81,45 @@ def _normalize_message_content(m: Any, index: Optional[int] = None) -> Any:
     return m
 
 
+def _ensure_tool_message_names(messages: list) -> list:
+    """Groq's harmony-formatted models (openai/gpt-oss-*) require every
+    role='tool' message to carry a non-empty `name` field, or the whole request
+    is rejected with 'Tools should have a name!'. Some ToolMessages already in
+    checkpointed history (from earlier provider/loop implementations) may be
+    missing this. Backfill it from the preceding AIMessage's tool_calls,
+    matched by tool_call_id, falling back to a generic placeholder only if no
+    match exists — this never changes what tool actually ran, only repairs the
+    metadata needed to re-send the message as history."""
+    id_to_name = {}
+    for m in messages:
+        tool_calls = getattr(m, "tool_calls", None)
+        if tool_calls:
+            for tc in tool_calls:
+                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                if tc_id and tc_name:
+                    id_to_name[tc_id] = tc_name
+
+    for m in messages:
+        if getattr(m, "type", None) == "tool":
+            if not getattr(m, "name", None):
+                tc_id = getattr(m, "tool_call_id", None)
+                m.name = id_to_name.get(tc_id, "tool")
+    return messages
+
+
 def _fallback_classify_stage(latest_msg_text: str) -> str:
     """Small deterministic fallback classifier when LLM structured output fails or returns None."""
     logger.info("[ROUTER FALLBACK] classifier unavailable")
     text_lower = (latest_msg_text or "").lower().strip()
     booking_keywords = ["book", "booking", "appointment", "schedule", "slot", "see dr", "see doctor"]
-    
+
     if any(kw in text_lower for kw in booking_keywords):
         logger.info("[ROUTER FALLBACK] detected stage=booking")
         return "booking"
-    
+
     logger.info("[ROUTER FALLBACK] detected stage=qa")
     return "qa"
-
-
-class StageDecision(BaseModel):
-    stage: Literal["qa", "booking"] = Field(
-        description=(
-            "Which mode best serves the patient's LATEST message, given the recent conversation. "
-            "'booking' only if they clearly want to search doctors, check availability, or book/reschedule "
-            "an appointment right now. Everything else — general questions, small talk, follow-ups, "
-            "questions unrelated to booking even if a booking is already in progress — is 'qa'."
-        )
-    )
 
 
 async def router_node(state: AgentState) -> Dict[str, Any]:
@@ -102,20 +152,32 @@ async def router_node(state: AgentState) -> Dict[str, Any]:
         else:
             try:
                 llm = get_llm()
-                classifier = llm.with_structured_output(StageDecision, method="function_calling")
                 recent = messages[-6:]
-                decision = await classifier.ainvoke(
-                    [SystemMessage(content=(
-                        "Classify what the patient's latest message needs. Default to 'qa' unless "
-                        "booking intent is unambiguous."
-                    ))] + recent
+                _ensure_tool_message_names(recent)
+                classifier_prompt = (
+                    "Classify what the patient's LATEST message needs, given the recent conversation.\n"
+                    "Respond with ONLY a raw JSON object and nothing else — no markdown fences, "
+                    "no explanation, no extra text. Exactly one of these two forms:\n"
+                    '{"stage": "qa"}\n'
+                    '{"stage": "booking"}\n\n'
+                    "'booking' only if they clearly want to search doctors, check availability, or "
+                    "book/reschedule an appointment right now. Everything else — general questions, "
+                    "small talk, follow-ups, questions unrelated to booking even if a booking is "
+                    "already in progress — is 'qa'."
                 )
-                if decision is None:
+                raw_response = await llm.ainvoke([SystemMessage(content=classifier_prompt)] + recent)
+                raw_content = getattr(raw_response, "content", "")
+                parsed_stage = _parse_stage_output(raw_content if isinstance(raw_content, str) else str(raw_content))
+
+                if parsed_stage is None:
                     CLASSIFIER_FAILURE_COUNT += 1
-                    logger.error(f"Stage classifier returned None (unparsable output) [total failures: {CLASSIFIER_FAILURE_COUNT}]")
+                    logger.error(
+                        f"Stage classifier returned unparsable output: {raw_content!r} "
+                        f"[total failures: {CLASSIFIER_FAILURE_COUNT}]"
+                    )
                     new_stage = _fallback_classify_stage(str(last_msg_content))
                 else:
-                    new_stage = decision.stage
+                    new_stage = parsed_stage
             except Exception:
                 CLASSIFIER_FAILURE_COUNT += 1
                 logger.error(f"Stage classifier failed [total failures: {CLASSIFIER_FAILURE_COUNT}]; running fallback classifier", exc_info=True)
@@ -153,6 +215,7 @@ async def _execute_react_step(llm_with_tools, tools, state: AgentState, system_p
         history.append(m)
 
     messages = [SystemMessage(content=system_prompt)] + history
+    _ensure_tool_message_names(messages)
 
     for idx, m in enumerate(messages):
         _normalize_message_content(m, index=idx)
@@ -190,6 +253,7 @@ async def _execute_react_step(llm_with_tools, tools, state: AgentState, system_p
         tool_messages.extend(tool_node_result["messages"])
 
         step_messages = messages + tool_messages
+        _ensure_tool_message_names(step_messages)
         for idx, m in enumerate(step_messages):
             _normalize_message_content(m, index=idx)
 
@@ -207,6 +271,7 @@ async def _execute_react_step(llm_with_tools, tools, state: AgentState, system_p
             "You have gathered enough information from the tool calls above. "
             "Give the patient a clear, direct answer now — do not call any more tools."
         ))]
+        _ensure_tool_message_names(final_msgs)
         for idx, m in enumerate(final_msgs):
             _normalize_message_content(m, index=idx)
 
@@ -220,8 +285,7 @@ async def _execute_react_step(llm_with_tools, tools, state: AgentState, system_p
 async def hospital_qa_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """Q&A Node: Answers general questions about hospital, departments, and doctors."""
     llm = get_llm()
-    tools = [search_doctors, get_hospital_info]
-    llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
     system_prompt = (
         "You are the HealthPulse AI Assistant. Answer patient questions about hospital facilities, "
@@ -231,9 +295,11 @@ async def hospital_qa_node(state: AgentState, config: RunnableConfig) -> Dict[st
         "If a tool call returns no relevant data for the question, say so plainly and offer to connect "
         "the patient with the front desk — never invent hospital details, doctor credentials, fees, or "
         "availability that a tool did not actually return.\n"
+        "Stay focused on Q&A — only use booking/intake tools if the patient clearly asks to book or is "
+        "actively completing post-booking intake.\n"
         "Be professional, polite, and concise."
     )
-    return await _execute_react_step(llm_with_tools, tools, state, system_prompt, config)
+    return await _execute_react_step(llm_with_tools, ALL_TOOLS, state, system_prompt, config)
 
 
 async def booking_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
@@ -241,8 +307,7 @@ async def booking_node(state: AgentState, config: RunnableConfig) -> Dict[str, A
     not currently collected — book_appointment fires directly once a valid slot is
     confirmed."""
     llm = get_llm()
-    tools = [search_doctors, check_availability, book_appointment]
-    llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
     now_str = datetime.now().isoformat()
     system_prompt = (
@@ -261,7 +326,7 @@ async def booking_node(state: AgentState, config: RunnableConfig) -> Dict[str, A
         "invent availability.\n"
         "Once an appointment is successfully created, inform the patient."
     )
-    res = await _execute_react_step(llm_with_tools, tools, state, system_prompt, config)
+    res = await _execute_react_step(llm_with_tools, ALL_TOOLS, state, system_prompt, config)
 
     # Stage only advances when book_appointment actually reports success — merely
     # requesting the tool isn't enough (e.g. slot taken, doctor not found, DB
@@ -291,8 +356,7 @@ async def booking_node(state: AgentState, config: RunnableConfig) -> Dict[str, A
 async def post_booking_intake_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """Post-Booking Intake Node: Collects symptom notes with guaranteed exit after 4 turns or enough info."""
     llm = get_llm()
-    tools = [save_intake_note]
-    llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
     turns = state.get("intake_turns", 0) + 1
 
@@ -300,9 +364,11 @@ async def post_booking_intake_node(state: AgentState, config: RunnableConfig) ->
         "You are the HealthPulse Medical Intake Assistant. The patient has just booked an appointment.\n"
         "Ask about their current symptoms, medical history, and any past test reports to prepare notes for the doctor.\n"
         "Only record what the patient actually tells you — never fill in symptoms or history they did not mention.\n"
-        "Call `save_intake_note` when notes are collected."
+        "Call `save_intake_note` when notes are collected.\n"
+        "If the patient asks an unrelated general question mid-intake, you may briefly use `search_doctors` "
+        "or `get_hospital_info` to answer it, then return to collecting intake notes."
     )
-    res = await _execute_react_step(llm_with_tools, tools, state, system_prompt, config)
+    res = await _execute_react_step(llm_with_tools, ALL_TOOLS, state, system_prompt, config)
 
     note_saved = False
     for msg in res.get("messages", []):
