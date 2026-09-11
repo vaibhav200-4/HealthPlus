@@ -364,7 +364,7 @@ def check_slot_available(doctor_name, appointment_date, appointment_time):
                     return False
     return True
 
-def create_appointment(patient_name, phone, address, doctor_name, appointment_date, appointment_time):
+def create_appointment(patient_name, phone, address, doctor_name, appointment_date, appointment_time, user_id=None):
     norm_date = normalize_date(appointment_date) or datetime.now().strftime("%Y-%m-%d")
     norm_time = normalize_time(appointment_time) or "09:00:00"
     
@@ -373,11 +373,14 @@ def create_appointment(patient_name, phone, address, doctor_name, appointment_da
     doc_real_name = doc[1] if doc else doctor_name
     hospital_name = doc[5] if doc else "HealthPlus Central Hospital"
     
-    voice_user_id = "00000000-0000-0000-0000-000000000001"
+    # Use the caller-supplied user_id (real logged-in user) or fall back to the
+    # anonymous voice-agent sentinel UUID only when no user is authenticated.
+    voice_user_id = user_id or "00000000-0000-0000-0000-000000000001"
     # Try using BookingService
     try:
         success, msg, app_data = BookingService.create_appointment(
             user_id=voice_user_id,
+
             doctor_id=str(doc_id),
             doctor_name=doc_real_name,
             hospital_name=hospital_name,

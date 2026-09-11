@@ -339,6 +339,11 @@ class HospitalHandler:
         self.phone_buffer = ""
         self.address: str | None = None
         
+        # The authenticated user who initiated this voice session.
+        # Set by the WebSocket endpoint after resolving the JWT token.
+        # Falls back to the anonymous voice-agent UUID if unauthenticated.
+        self.user_id: str = "00000000-0000-0000-0000-000000000001"
+        
         self.current_intent: str | None = None
         self.confirmation_pending: bool = False
         self.navigation_booking_pending: bool = False
@@ -1004,6 +1009,7 @@ class HospitalHandler:
             self.doctor_name,
             self.appointment_date,
             self.appointment_time,
+            user_id=self.user_id,
         )
         if app_id and verify_appointment_booked(app_id):
             booking_id = app_id

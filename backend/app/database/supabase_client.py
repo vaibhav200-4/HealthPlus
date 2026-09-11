@@ -1,6 +1,7 @@
 import json
 import uuid
 import logging
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 from app.config import settings
 
@@ -35,7 +36,40 @@ _LOCAL_STORE: Dict[str, List[Dict[str, Any]]] = {
     "episodes": []
 }
 
+_LOCAL_DB_FILE = Path(__file__).resolve().parents[2] / "local_db.json"
+
 _supabase_client = None
+
+
+def _load_local_store() -> None:
+    global _LOCAL_STORE
+    if not _LOCAL_DB_FILE.exists():
+        return
+
+    try:
+        with _LOCAL_DB_FILE.open("r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+        if isinstance(raw_data, dict):
+            for table, records in _LOCAL_STORE.items():
+                loaded_records = raw_data.get(table, [])
+                if isinstance(loaded_records, list):
+                    records[:] = loaded_records
+            for table, records in raw_data.items():
+                if table not in _LOCAL_STORE:
+                    _LOCAL_STORE[table] = records if isinstance(records, list) else []
+    except Exception as e:
+        logger.warning(f"Failed to load local DB file '{_LOCAL_DB_FILE}': {e}")
+
+
+def _persist_local_store() -> None:
+    try:
+        with _LOCAL_DB_FILE.open("w", encoding="utf-8") as f:
+            json.dump(_LOCAL_STORE, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to persist local DB file '{_LOCAL_DB_FILE}': {e}")
+
+
+_load_local_store()
 
 def get_supabase_client():
     global _supabase_client
@@ -128,6 +162,7 @@ class SupabaseService:
         records = _LOCAL_STORE.setdefault(table, [])
         if not any(str(r.get("id")) == str(data["id"]) for r in records):
             records.append(data)
+        _persist_local_store()
         return data
 
     @staticmethod
@@ -151,6 +186,7 @@ class SupabaseService:
                 item.update(updates)
                 updated_item = item
                 break
+        _persist_local_store()
         return updated_item
 
     @staticmethod
@@ -167,5 +203,6 @@ class SupabaseService:
         # Local standalone mode when Supabase is not configured
         records = _LOCAL_STORE.get(table, [])
         _LOCAL_STORE[table] = [r for r in records if str(r.get(id_field)) != str(record_id)]
+        _persist_local_store()
         return True
 

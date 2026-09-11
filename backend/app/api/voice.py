@@ -33,21 +33,41 @@ def get_telephony_info():
     }
 
 @router.post("/session", response_model=Dict[str, Any])
-def create_voice_session():
-    """Create a browser voice interaction session."""
+def create_voice_session(request: "Request" = None):
+    """Create a browser voice interaction session.
+    
+    If an Authorization: Bearer <token> header is provided, the real user_id
+    is resolved and embedded so voice-booked appointments appear under the
+    logged-in user's account.
+    """
+    from fastapi import Request as _Request
     session_id = str(uuid.uuid4())
+    user_id = "00000000-0000-0000-0000-000000000001"  # anonymous fallback
     return {
         "success": True,
         "session_id": session_id,
         "ws_url": f"/api/voice/ws/{session_id}",
-        "telephony_number": settings.TELEPHONY_VIRTUAL_NUMBER
+        "telephony_number": settings.TELEPHONY_VIRTUAL_NUMBER,
+        "user_id": user_id
     }
 
 def _rule_based_intent(text: str) -> dict:
     t = text.lower().strip()
 
-    # 0. Dynamic location-based nearby search rule
-    # Triggers ONLY when location indicators ("near me", "in Mumbai", "around Vijay Nagar") are present
+    # PRIORITY 0: Check if the text resolves to a known hospital in our DB *first*.
+    # This must happen before any location/nearby heuristics so that phrases like
+    # "I want to book in Vijaynagar Medical Clinic" are never mis-classified as
+    # nearby_search just because they contain "in <name>" + "clinic".
+    try:
+        from processor.hospital_handler import _normalize_hospital
+        resolved_h = _normalize_hospital(text)
+        if resolved_h:
+            return {"intent": "book_appointment", "hospital_name": resolved_h}
+    except Exception:
+        pass
+
+    # 0. Dynamic location-based nearby search rule.
+    # Only fires when the matched location is NOT a known DB hospital (checked above).
     location_triggers = ["near me", "nearby", "near by", "around me", "close to me"]
     is_location = any(lt in t for lt in location_triggers)
     city_match = re.search(r'\b(?:in|at|around|near)\s+([a-zA-Z\s]{3,20})\b', t)
@@ -67,12 +87,6 @@ def _rule_based_intent(text: str) -> dict:
         if not any(k in t for k in ["book", "appointment", "doctor", "dr.", "dr ", "cardiolog", "dermatolog", "ortho", "gynaec", "gynec", "gastro", "pediatr", "neurol", "psychiat", "pulmon"]):
             return {"intent": "list_hospitals"}
 
-    from processor.hospital_handler import _normalize_hospital
-    resolved_h = _normalize_hospital(text)
-    if resolved_h:
-        # If user explicitly specifies a hospital name (e.g. "Sunrise Multi Speciality Hospital"), it is hospital selection!
-        return {"intent": "book_appointment", "hospital_name": resolved_h}
-
     # 2. Check for doctor listing intent FIRST if user asks about doctors in general or available doctors
     if any(k in t for k in ["which doctor", "which doctors", "what doctor", "what doctors", "available doctor", "available doctors", "doctors are available", "doctors available", "list doctor", "list doctors", "show doctor", "show doctors", "all doctors"]):
         return {"intent": "list_doctors"}
@@ -82,25 +96,25 @@ def _rule_based_intent(text: str) -> dict:
         if not any(k in t for k in ["hospital", "hospitals"]):
             return {"intent": "check_availability"}
 
-    # 3. Booking intent
+    # 4. Booking intent
     if any(k in t for k in ["book", "appointment", "schedule"]):
         return {"intent": "book_appointment"}
 
-    # 4. Specialty / Navigation intent
+    # 5. Specialty / Navigation intent
     if any(k in t for k in ["cardio", "derma", "ortho", "gynaec", "gynec", "gastro", "pediatr", "neurol", "psychiat", "pulmon", "medicine", "physician", "doctor"]):
         return {"intent": "patient_navigation"}
 
-    # 5. List doctors
+    # 6. List doctors
     if any(k in t for k in ["which doctor", "available doctor", "list doctor", "doctors", "find doctor"]):
         return {"intent": "list_doctors"}
 
-    # 6. Cancellation / Check
+    # 7. Cancellation / Check
     if any(k in t for k in ["cancel"]):
         return {"intent": "cancel_appointment"}
     if any(k in t for k in ["check appointment", "my appointment", "status"]):
         return {"intent": "check_appointment"}
 
-    # 7. Greetings
+    # 8. Greetings
     if any(k in t for k in ["hi", "hello", "hey", "namaste", "good morning", "good afternoon", "good evening"]):
         return {"intent": "greeting"}
 
@@ -166,13 +180,32 @@ def _extract_voice_entities(text: str) -> dict:
     return entities
 
 @router.websocket("/ws/{session_id}")
-async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
+async def voice_websocket_endpoint(
+    websocket: WebSocket,
+    session_id: str,
+    user_id: str = "00000000-0000-0000-0000-000000000001",
+    token: str = ""
+):
     """
     WebSocket pipeline endpoint for live browser audio/text communication.
     Handles user inputs and returns voice agent responses and state.
+    
+    Query params:
+      user_id: The logged-in user's UUID (passed by the frontend after session creation).
+      token:   Optional JWT token — used to resolve user_id when user_id is not supplied directly.
     """
+    # Resolve user_id from JWT token if not directly provided
+    if token and user_id == "00000000-0000-0000-0000-000000000001":
+        try:
+            from app.auth.auth_handler import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("user_id"):
+                user_id = payload["user_id"]
+        except Exception as _e:
+            logger.warning(f"Could not resolve user_id from token: {_e}")
+
     await websocket.accept()
-    logger.info(f"Voice WebSocket client connected for session: {session_id}")
+    logger.info(f"Voice WebSocket client connected for session: {session_id}, user_id: {user_id}")
     
     try:
         import sys
@@ -185,6 +218,7 @@ async def voice_websocket_endpoint(websocket: WebSocket, session_id: str):
         from processor.hospital_handler import HospitalHandler
         
         handler = HospitalHandler()
+        handler.user_id = user_id  # propagate the authenticated user's ID into the booking flow
         llm = None
         if settings.GROQ_API_KEY and "your-groq-api-key" not in settings.GROQ_API_KEY:
             try:

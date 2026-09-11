@@ -256,6 +256,7 @@ export const DashboardPage: React.FC = () => {
         doctor={selectedDoctor}
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
+        onSuccess={fetchDashboardData}
       />
     </div>
   );

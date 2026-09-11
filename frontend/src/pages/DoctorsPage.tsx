@@ -245,6 +245,7 @@ export const DoctorsPage: React.FC = () => {
         doctor={selectedDoctor}
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
+        onSuccess={() => window.location.reload()}
       />
     </div>
   );

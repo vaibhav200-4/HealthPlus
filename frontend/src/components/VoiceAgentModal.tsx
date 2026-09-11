@@ -217,10 +217,17 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
   const startVoiceCall = async () => {
     try {
       setStatusText('Connecting to AI Voice Agent...');
-      const res = await fetch('/api/voice/session', { method: 'POST' });
+      const token = localStorage.getItem('hospital_auth_token') || '';
+      const res = await fetch('/api/voice/session', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       const data = await res.json();
 
       const path = data.ws_url || `/api/voice/ws/${data.session_id}`;
+      // Append the JWT token as a query param so the backend WS handler can
+      // resolve the real logged-in user_id and attribute appointments correctly.
+      const wsPath = token ? `${path}?token=${encodeURIComponent(token)}` : path;
       let wsUrl = '';
       const apiUrl = import.meta.env.VITE_API_URL;
       
@@ -228,14 +235,14 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
         try {
           const urlObj = new URL(apiUrl);
           const wsProtocol = urlObj.protocol === 'https:' ? 'wss:' : 'ws:';
-          wsUrl = `${wsProtocol}//${urlObj.host}${path}`;
+          wsUrl = `${wsProtocol}//${urlObj.host}${wsPath}`;
         } catch (e) {
           const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          wsUrl = `${protocol}//${window.location.host}${path}`;
+          wsUrl = `${protocol}//${window.location.host}${wsPath}`;
         }
       } else {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl = `${protocol}//${window.location.host}${path}`;
+        wsUrl = `${protocol}//${window.location.host}${wsPath}`;
       }
 
       const socket = new WebSocket(wsUrl);

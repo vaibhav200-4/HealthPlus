@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { Bot, X, Send, Sparkles, User as UserIcon, Paperclip, Loader2, AlertCircle, FileText, ExternalLink, Lock, LogIn, Mic } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
-import { Bot, X, Send, Sparkles, User as UserIcon, RefreshCw, MessageSquare, Mic, Phone, Paperclip, Loader2, AlertCircle, FileText, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import { VoiceAgentModal } from './VoiceAgentModal';
-import { Bot, X, Send, Sparkles, User as UserIcon, Paperclip, Loader2, AlertCircle, FileText, ExternalLink, Lock, LogIn } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 export const FloatingChatbot: React.FC = () => {
@@ -41,7 +40,6 @@ export const FloatingChatbot: React.FC = () => {
 
     setUploadError(null);
 
-    // Client-side file size check (15MB)
     const MAX_SIZE = 15 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
       setUploadError('File size exceeds maximum limit of 15MB.');
@@ -69,24 +67,6 @@ export const FloatingChatbot: React.FC = () => {
     }
   };
 
-  if (!isOpen) {
-    return (
-      <>
-        <button
-          onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white rounded-full shadow-2xl hover:shadow-medical-500/40 hover:scale-105 transition-all duration-300 group"
-        >
-          <div className="relative">
-            <Bot className="w-6 h-6 text-white group-hover:rotate-12 transition-transform" />
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse"></span>
-          </div>
-          <span className="font-semibold text-sm pr-1 hidden sm:inline">AI Health Assistant</span>
-        </button>
-        <VoiceAgentModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
-      </>
-    );
-  }
-
   const renderMessageContent = (msg: any) => {
     const isImage = msg.file_type && ['jpg', 'jpeg', 'png', 'webp'].includes(msg.file_type.toLowerCase());
     const isPdf = msg.file_type && msg.file_type.toLowerCase() === 'pdf';
@@ -98,6 +78,7 @@ export const FloatingChatbot: React.FC = () => {
         ) : (
           <div className="whitespace-pre-wrap">{msg.message}</div>
         )}
+
         {(msg.signed_file_url || msg.file_url) && (
           <div className="mt-2 pt-2 border-t border-slate-200/40">
             {isImage ? (
@@ -153,10 +134,27 @@ export const FloatingChatbot: React.FC = () => {
     );
   };
 
+  if (!isOpen) {
+    return (
+      <>
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white rounded-full shadow-2xl hover:shadow-medical-500/40 hover:scale-105 transition-all duration-300 group"
+        >
+          <div className="relative">
+            <Bot className="w-6 h-6 text-white group-hover:rotate-12 transition-transform" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse"></span>
+          </div>
+          <span className="font-semibold text-sm pr-1 hidden sm:inline">AI Health Assistant</span>
+        </button>
+        <VoiceAgentModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
+      </>
+    );
+  }
+
   return (
     <>
       <div className="fixed bottom-4 right-4 z-50 w-[92vw] sm:w-[420px] h-[580px] max-h-[85vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5">
-        {/* Chat Header */}
         <div className="p-4 bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-800 text-white flex items-center justify-between shadow-md">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
@@ -192,184 +190,172 @@ export const FloatingChatbot: React.FC = () => {
           </div>
         </div>
 
-      {/* Chat Messages */}
-        <button
-          onClick={() => setIsOpen(false)}
-          className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Chat Messages / Logged-Out Prompt */}
-      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
-        {!user ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-            <div className="w-16 h-16 rounded-2xl bg-medical-50 text-medical-600 flex items-center justify-center mb-4 shadow-inner border border-medical-100">
-              <Lock className="w-8 h-8 text-medical-600" />
-            </div>
-            <h4 className="font-bold text-slate-800 text-base mb-1.5">
-              Please log in to use the AI Health Assistant
-            </h4>
-            <p className="text-xs text-slate-500 mb-6 max-w-xs leading-relaxed">
-              Sign in to your account to search for doctors, book appointments, and chat with your smart healthcare assistant.
-            </p>
-            <Link
-              to="/login"
-              onClick={() => setIsOpen(false)}
-              className="w-full max-w-xs py-3 px-4 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-medical-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
-            >
-              <LogIn className="w-4 h-4" />
-              Sign In to Chat
-            </Link>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-            <div className="w-14 h-14 rounded-2xl bg-medical-50 text-medical-600 flex items-center justify-center mb-3 shadow-inner">
-              <Bot className="w-8 h-8" />
-            </div>
-            <h4 className="font-semibold text-slate-800 mb-1">Hello! I'm your Health Assistant</h4>
-            <p className="text-xs text-slate-500 mb-4 max-w-xs">
-              Ask me about appointments, doctors, or upload your medical records via the attach icon below.
-            </p>
-            <div className="grid grid-cols-1 gap-2 w-full text-xs">
-              <button
-                onClick={() => sendMessage('Find me a cardiologist in Indore')}
-                className="p-2.5 bg-white border border-slate-200 rounded-xl text-left hover:border-medical-400 hover:bg-medical-50/40 text-slate-700 transition-colors shadow-sm"
+        <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
+          {!user ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
+              <div className="w-16 h-16 rounded-2xl bg-medical-50 text-medical-600 flex items-center justify-center mb-4 shadow-inner border border-medical-100">
+                <Lock className="w-8 h-8 text-medical-600" />
+              </div>
+              <h4 className="font-bold text-slate-800 text-base mb-1.5">
+                Please log in to use the AI Health Assistant
+              </h4>
+              <p className="text-xs text-slate-500 mb-6 max-w-xs leading-relaxed">
+                Sign in to your account to search for doctors, book appointments, and chat with your smart healthcare assistant.
+              </p>
+              <Link
+                to="/login"
+                onClick={() => setIsOpen(false)}
+                className="w-full max-w-xs py-3 px-4 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-medical-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
               >
-                🔍 "Find me a cardiologist in Indore"
-              </button>
-              <button
-                onClick={() => sendMessage('What doctors are available at Sunrise Hospital?')}
-                className="p-2.5 bg-white border border-slate-200 rounded-xl text-left hover:border-medical-400 hover:bg-medical-50/40 text-slate-700 transition-colors shadow-sm"
-              >
-                🏥 "Doctors at Sunrise Hospital?"
-              </button>
+                <LogIn className="w-4 h-4" />
+                Sign In to Chat
+              </Link>
             </div>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {msg.role === 'assistant' && (
-                <div className="w-8 h-8 rounded-full bg-medical-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm mt-1">
-                  <Bot className="w-4 h-4" />
-                </div>
-              )}
-
+          ) : messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
+              <div className="w-14 h-14 rounded-2xl bg-medical-50 text-medical-600 flex items-center justify-center mb-3 shadow-inner">
+                <Bot className="w-8 h-8" />
+              </div>
+              <h4 className="font-semibold text-slate-800 mb-1">Hello! I'm your Health Assistant</h4>
+              <p className="text-xs text-slate-500 mb-4 max-w-xs">
+                Ask me about appointments, doctors, or upload your medical records via the attach icon below.
+              </p>
+              <div className="grid grid-cols-1 gap-2 w-full text-xs">
+                <button
+                  onClick={() => sendMessage('Find me a cardiologist in Indore')}
+                  className="p-2.5 bg-white border border-slate-200 rounded-xl text-left hover:border-medical-400 hover:bg-medical-50/40 text-slate-700 transition-colors shadow-sm"
+                >
+                  🔍 "Find me a cardiologist in Indore"
+                </button>
+                <button
+                  onClick={() => sendMessage('What doctors are available at Sunrise Hospital?')}
+                  className="p-2.5 bg-white border border-slate-200 rounded-xl text-left hover:border-medical-400 hover:bg-medical-50/40 text-slate-700 transition-colors shadow-sm"
+                >
+                  🏥 "Doctors at Sunrise Hospital?"
+                </button>
+              </div>
+            </div>
+          ) : (
+            messages.map((msg) => (
               <div
-                className={`max-w-[80%] p-3.5 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-gradient-to-r from-medical-600 to-medical-500 text-white rounded-br-none shadow-md shadow-medical-500/10'
-                    : 'bg-white text-slate-800 border border-slate-200 rounded-bl-none shadow-sm'
-                }`}
+                key={msg.id}
+                className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                {renderMessageContent(msg)}
-                {msg.created_at && (
-                  <span
-                    className={`block text-[10px] mt-1.5 text-right ${
-                      msg.role === 'user' ? 'text-medical-200' : 'text-slate-400'
-                    }`}
-                  >
-                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                {msg.role === 'assistant' && (
+                  <div className="w-8 h-8 rounded-full bg-medical-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm mt-1">
+                    <Bot className="w-4 h-4" />
+                  </div>
+                )}
+
+                <div
+                  className={`max-w-[80%] p-3.5 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-gradient-to-r from-medical-600 to-medical-500 text-white rounded-br-none shadow-md shadow-medical-500/10'
+                      : 'bg-white text-slate-800 border border-slate-200 rounded-bl-none shadow-sm'
+                  }`}
+                >
+                  {renderMessageContent(msg)}
+                  {msg.created_at && (
+                    <span
+                      className={`block text-[10px] mt-1.5 text-right ${
+                        msg.role === 'user' ? 'text-medical-200' : 'text-slate-400'
+                      }`}
+                    >
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
+
+                {msg.role === 'user' && (
+                  <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-1">
+                    <UserIcon className="w-4 h-4" />
+                  </div>
                 )}
               </div>
+            ))
+          )}
 
-              {msg.role === 'user' && (
-                <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-1">
-                  <UserIcon className="w-4 h-4" />
-                </div>
-              )}
-            </div>
-          ))
-        )}
-
-        {/* Loading / Uploading Indicator */}
-        {user && (loading || uploading) && (
-          <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 rounded-full bg-medical-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">
-              <Bot className="w-4 h-4 animate-spin" />
-            </div>
-            <div className="bg-white p-3.5 rounded-2xl rounded-bl-none border border-slate-200 text-slate-500 text-sm flex items-center gap-2 shadow-sm">
-              <div className="flex gap-1">
-                <span className="w-2 h-2 bg-medical-400 rounded-full animate-bounce"></span>
-                <span className="w-2 h-2 bg-medical-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                <span className="w-2 h-2 bg-medical-600 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+          {user && (loading || uploading) && (
+            <div className="flex gap-3 justify-start">
+              <div className="w-8 h-8 rounded-full bg-medical-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">
+                <Bot className="w-4 h-4 animate-spin" />
               </div>
-              <span className="text-xs font-medium text-slate-400">
-                {uploading ? 'Uploading document & notifying assistant...' : 'Health Assistant thinking...'}
-              </span>
+              <div className="bg-white p-3.5 rounded-2xl rounded-bl-none border border-slate-200 text-slate-500 text-sm flex items-center gap-2 shadow-sm">
+                <div className="flex gap-1">
+                  <span className="w-2 h-2 bg-medical-400 rounded-full animate-bounce"></span>
+                  <span className="w-2 h-2 bg-medical-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                  <span className="w-2 h-2 bg-medical-600 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+                </div>
+                <span className="text-xs font-medium text-slate-400">
+                  {uploading ? 'Uploading document & notifying assistant...' : 'Health Assistant thinking...'}
+                </span>
+              </div>
             </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {uploadError && (
+          <div className="px-3 py-2 bg-red-50 border-t border-red-200 flex items-center justify-between text-xs text-red-700 font-medium">
+            <div className="flex items-center gap-1.5 truncate">
+              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+              <span className="truncate">{uploadError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setUploadError(null)}
+              className="p-1 text-red-500 hover:text-red-800 rounded-md"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
-        <div ref={messagesEndRef} />
-      </div>
+        <form onSubmit={handleSend} className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="application/pdf,image/jpeg,image/png,image/webp"
+            onChange={handleFileSelect}
+            className="hidden"
+            disabled={!user || loading || uploading}
+          />
 
-      {/* Inline Upload Error Banner */}
-      {uploadError && (
-        <div className="px-3 py-2 bg-red-50 border-t border-red-200 flex items-center justify-between text-xs text-red-700 font-medium">
-          <div className="flex items-center gap-1.5 truncate">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-            <span className="truncate">{uploadError}</span>
-          </div>
           <button
             type="button"
-            onClick={() => setUploadError(null)}
-            className="p-1 text-red-500 hover:text-red-800 rounded-md"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!user || loading || uploading}
+            title={!user ? 'Please log in to attach files' : 'Attach PDF or image document (Max 15MB)'}
+            className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0 border border-slate-200"
           >
-            <X className="w-3.5 h-3.5" />
+            {uploading ? (
+              <Loader2 className="w-4 h-4 text-medical-600 animate-spin" />
+            ) : (
+              <Paperclip className="w-4 h-4 text-slate-600 hover:text-medical-600" />
+            )}
           </button>
-        </div>
-      )}
 
-      {/* Input Form */}
-      <form onSubmit={handleSend} className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept="application/pdf,image/jpeg,image/png,image/webp"
-          onChange={handleFileSelect}
-          className="hidden"
-          disabled={!user || loading || uploading}
-        />
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={!user ? 'Please log in to chat...' : 'Ask AI or book appointment...'}
+            className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:bg-white transition-all placeholder:text-slate-400 disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={!user || loading || uploading}
+          />
 
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={!user || loading || uploading}
-          title={!user ? "Please log in to attach files" : "Attach PDF or image document (Max 15MB)"}
-          className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0 border border-slate-200"
-        >
-          {uploading ? (
-            <Loader2 className="w-4 h-4 text-medical-600 animate-spin" />
-          ) : (
-            <Paperclip className="w-4 h-4 text-slate-600 hover:text-medical-600" />
-          )}
-        </button>
+          <button
+            type="submit"
+            disabled={!user || loading || uploading || !input.trim()}
+            className="w-10 h-10 rounded-full bg-medical-600 text-white flex items-center justify-center hover:bg-medical-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-medical-500/20 transition-all flex-shrink-0"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
+      </div>
 
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={!user ? "Please log in to chat..." : "Ask AI or book appointment..."}
-          className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:bg-white transition-all placeholder:text-slate-400 disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-          disabled={!user || loading || uploading}
-        />
-
-        <button
-          type="submit"
-          disabled={!user || loading || uploading || !input.trim()}
-          className="w-10 h-10 rounded-full bg-medical-600 text-white flex items-center justify-center hover:bg-medical-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-medical-500/20 transition-all flex-shrink-0"
-        >
-          <Send className="w-4 h-4" />
-        </button>
-      </form>
-    </div>
-    <VoiceAgentModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
+      <VoiceAgentModal isOpen={voiceModalOpen} onClose={() => setVoiceModalOpen(false)} />
     </>
   );
 };

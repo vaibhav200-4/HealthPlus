@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import os
+import logging
 
 # On Windows, ProactorEventLoop has a known getaddrinfo/DNS resolution race condition
 # in asyncio socket operations under high concurrency. SelectorEventLoop resolves this cleanly.
