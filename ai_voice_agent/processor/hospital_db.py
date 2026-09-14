@@ -46,7 +46,9 @@ def normalize_date(date_str):
 
     months = {
         "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
-        "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
+        "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8,
+        "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12
     }
     
     found_month = None
@@ -60,14 +62,29 @@ def normalize_date(date_str):
     if found_month and day_match:
         day = int(day_match.group(1))
         year = today.year
-        if found_month < today.month:
-            year += 1
+        year_match = re.search(r'\b(20\d{2})\b', date_str)
+        if year_match:
+            year = int(year_match.group(1))
         try:
             return datetime(year, found_month, day).strftime("%Y-%m-%d")
         except ValueError:
             pass
 
     return None
+
+def is_past_date(date_str: str) -> bool:
+    """Returns True if normalized YYYY-MM-DD date is strictly in the past relative to today."""
+    if not date_str:
+        return False
+    norm = normalize_date(date_str)
+    if not norm:
+        return False
+    try:
+        dt = datetime.strptime(norm, "%Y-%m-%d").date()
+        today = datetime.now().date()
+        return dt < today
+    except Exception:
+        return False
 
 def normalize_time(time_str):
     if not time_str:
@@ -137,14 +154,29 @@ def _is_test_doctor(doctor: dict) -> bool:
     return False
 
 
+_DB_CACHE = {}
+
+def _cached_get_records(table_name, filters=None, ttl=30):
+    import json
+    cache_key = (table_name, json.dumps(filters or {}, sort_keys=True))
+    now = time.time()
+    if cache_key in _DB_CACHE:
+        val, cached_time = _DB_CACHE[cache_key]
+        if now - cached_time < ttl:
+            return val
+            
+    records = SupabaseService.get_records(table_name, filters)
+    _DB_CACHE[cache_key] = (records, now)
+    return records
+
 def _get_hospital_map():
-    hospitals = SupabaseService.get_records("hospitals")
+    hospitals = _cached_get_records("hospitals")
     return {h.get("id"): h.get("hospital_name") for h in hospitals if h.get("id") and not _is_test_hospital(h)}
 
 def get_all_context_string():
     try:
-        hospitals = SupabaseService.get_records("hospitals")
-        doctors = SupabaseService.get_records("doctors")
+        hospitals = _cached_get_records("hospitals")
+        doctors = _cached_get_records("doctors")
         
         context = "AVAILABLE HOSPITALS:\n"
         for h in hospitals:
@@ -171,7 +203,7 @@ def get_all_context_string():
         return ""
 
 def get_hospitals():
-    hospitals = SupabaseService.get_records("hospitals")
+    hospitals = _cached_get_records("hospitals")
     result = []
     for h in hospitals:
         if _is_test_hospital(h):
@@ -279,12 +311,27 @@ def get_doctors():
     return result
 
 def get_doctors_by_specialization(specialization, hospital_name=None):
+    if not specialization:
+        return []
     doctors = _get_all_doctors_merged()
     h_map = _get_hospital_map()
     result = []
+    
+    search_raw = str(specialization).lower().strip()
+
     for d in doctors:
-        spec = d.get("specialization") or ""
-        if specialization and specialization.lower() in spec.lower():
+        doc_spec = str(d.get("specialization") or "").lower().strip()
+        if not doc_spec:
+            continue
+            
+        matches = (search_raw in doc_spec or doc_spec in search_raw)
+        if not matches:
+            if ("gynec" in search_raw or "gynaec" in search_raw) and ("gynec" in doc_spec or "gynaec" in doc_spec):
+                matches = True
+            elif ("ortho" in search_raw) and ("ortho" in doc_spec):
+                matches = True
+
+        if matches:
             h_name = d.get("hospital_name") or h_map.get(d.get("hospital_id"), "HealthPlus Hospital")
             if hospital_name and hospital_name.lower() not in h_name.lower():
                 continue
@@ -339,6 +386,54 @@ def get_doctors_by_hospital(hospital_name):
             result.append((name, spec, fee, sched, h_name))
     return result
 
+def is_doctor_available_on_date(doctor_info, appointment_date: str):
+    """
+    Parses doctor's availability string (e.g. 'Monday to Saturday' or 'Monday, Wednesday and Friday')
+    and checks if the day of week of appointment_date matches.
+    Returns (is_available, day_name).
+    """
+    if not appointment_date:
+        return True, ""
+    
+    norm_d = normalize_date(appointment_date)
+    if not norm_d:
+        return True, ""
+        
+    try:
+        dt = datetime.strptime(norm_d, "%Y-%m-%d")
+        day_name = dt.strftime("%A")
+    except Exception:
+        return True, ""
+
+    avail_str = ""
+    if isinstance(doctor_info, (list, tuple)) and len(doctor_info) > 4:
+        avail_str = str(doctor_info[4])
+    elif isinstance(doctor_info, dict):
+        avail_str = str(doctor_info.get("availability") or doctor_info.get("schedule") or "")
+
+    if not avail_str:
+        return True, day_name
+
+    avail_lower = avail_str.lower()
+    day_lower = day_name.lower()
+
+    if "monday to saturday" in avail_lower or "mon-sat" in avail_lower:
+        if day_lower == "sunday":
+            return False, day_name
+    elif "monday to friday" in avail_lower or "mon-fri" in avail_lower:
+        if day_lower in ("saturday", "sunday"):
+            return False, day_name
+    elif "tuesday to saturday" in avail_lower or "tue-sat" in avail_lower:
+        if day_lower in ("sunday", "monday"):
+            return False, day_name
+    else:
+        days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        mentioned = [d for d in days if d in avail_lower]
+        if mentioned and day_lower not in mentioned:
+            return False, day_name
+
+    return True, day_name
+
 def check_slot_available(doctor_name, appointment_date, appointment_time):
     norm_date = normalize_date(appointment_date)
     norm_time = normalize_time(appointment_time)
@@ -346,6 +441,11 @@ def check_slot_available(doctor_name, appointment_date, appointment_time):
         return True
         
     doc = get_doctor_by_name(doctor_name)
+    if doc:
+        avail_day, _ = is_doctor_available_on_date(doc, norm_date)
+        if not avail_day:
+            return False
+
     doc_id = doc[0] if doc else None
     
     apps = SupabaseService.get_records("appointments")
@@ -444,6 +544,58 @@ def get_patient_appointments(phone):
                 a.get("patient_name")
             ))
     return res
+
+def get_user_appointments(user_id):
+    """
+    Fetch all appointments for a logged-in user_id from Supabase and split them
+    into 'upcoming' and 'previous' lists using robust date parsing and status checks.
+    """
+    if not user_id:
+        return {"upcoming": [], "previous": []}
+        
+    records = SupabaseService.get_records("appointments", {"user_id": user_id})
+    if not records:
+        return {"upcoming": [], "previous": []}
+        
+    today = datetime.now().date()
+    upcoming = []
+    previous = []
+    
+    active_statuses = {"confirmed", "pending", "booked", "active"}
+    
+    for r in records:
+        date_raw = r.get("date") or r.get("appointment_date") or ""
+        status = (r.get("status") or "confirmed").lower()
+        
+        parsed_date = None
+        if date_raw:
+            try:
+                parsed_date = datetime.strptime(str(date_raw)[:10], "%Y-%m-%d").date()
+            except Exception:
+                parsed_date = None
+                
+        app_info = {
+            "id": r.get("id"),
+            "doctor_name": r.get("doctor_name") or "Doctor",
+            "hospital_name": r.get("hospital_name") or "Clinic",
+            "date": str(parsed_date) if parsed_date else str(date_raw),
+            "time": r.get("start_time") or r.get("appointment_time") or "TBD",
+            "status": status,
+            "patient_name": r.get("patient_name") or ""
+        }
+        
+        if status in ("completed", "cancelled") or (parsed_date and parsed_date < today):
+            previous.append(app_info)
+        elif status in active_statuses or (parsed_date and parsed_date >= today):
+            upcoming.append(app_info)
+        else:
+            previous.append(app_info)
+            
+    upcoming.sort(key=lambda x: x["date"])
+    previous.sort(key=lambda x: x["date"], reverse=True)
+    
+    return {"upcoming": upcoming, "previous": previous}
+
 
 def get_appointment_for_cancellation(patient_name, phone):
     apps = SupabaseService.get_records("appointments")

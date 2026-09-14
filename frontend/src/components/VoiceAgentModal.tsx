@@ -153,9 +153,23 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
     }
   };
 
-  // Speak AI responses using Web Speech Synthesis
-  const speakText = (text: string) => {
+  // Pre-warm TTS engine on component mount / voice call init
+  const prewarmSpeechEngine = () => {
     if (!('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.getVoices();
+      const warmUtterance = new SpeechSynthesisUtterance(' ');
+      warmUtterance.volume = 0.01;
+      window.speechSynthesis.speak(warmUtterance);
+    } catch (e) {}
+  };
+
+  // Speak AI responses using Web Speech Synthesis with latency tracking
+  const speakText = (text: string, msgRecvTime?: number) => {
+    if (!('speechSynthesis' in window)) return;
+    const tRecv = msgRecvTime ?? performance.now();
+    const tSpeakCall = performance.now();
+
     try {
       botSpeakingRef.current = true;
       lastBotTextRef.current = text;
@@ -164,7 +178,10 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
         try { recognitionRef.current.stop(); } catch (e) {}
       }
 
-      window.speechSynthesis.cancel();
+      // Only cancel if actively speaking to prevent engine reset delay
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+      }
 
       const utterance = new SpeechSynthesisUtterance(text);
       const chosenVoice = getIndianFemaleVoice();
@@ -176,6 +193,9 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       utterance.lang = 'en-IN';
 
       utterance.onstart = () => {
+        const tStart = performance.now();
+        console.log(`[TTS Latency] Recv->speakText: ${(tSpeakCall - tRecv).toFixed(1)}ms | speakText->AudioStart: ${(tStart - tSpeakCall).toFixed(1)}ms | Total Start Latency: ${(tStart - tRecv).toFixed(1)}ms`);
+
         if (recognitionRef.current) {
           try { recognitionRef.current.stop(); } catch (e) {}
         }
@@ -201,13 +221,8 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
         }
       };
 
-      window.setTimeout(() => {
-        try {
-          window.speechSynthesis.speak(utterance);
-        } catch (e) {
-          botSpeakingRef.current = false;
-        }
-      }, 15);
+      // Direct synchronous speak call (removed 15ms setTimeout hack)
+      window.speechSynthesis.speak(utterance);
     } catch (e) {
       botSpeakingRef.current = false;
       console.warn('Speech Synthesis error:', e);
@@ -216,13 +231,34 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
 
   const startVoiceCall = async () => {
     try {
+      prewarmSpeechEngine();
       setStatusText('Connecting to AI Voice Agent...');
+
       const token = localStorage.getItem('hospital_auth_token') || '';
-      const res = await fetch('/api/voice/session', {
+
+      // Run session creation and microphone pre-warming in parallel for ultra-fast connection
+      const sessionPromise = fetch('/api/voice/session', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
-      const data = await res.json();
+      }).then(r => r.json());
+
+      const micPromise = (async () => {
+        try {
+          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('Microphone noise constraints requested:', e);
+        }
+      })();
+
+      const [data] = await Promise.all([sessionPromise, micPromise]);
 
       const path = data.ws_url || `/api/voice/ws/${data.session_id}`;
       // Append the JWT token as a query param so the backend WS handler can
@@ -256,6 +292,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
       };
 
       socket.onmessage = (event) => {
+        const msgRecvTime = performance.now();
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'bot_text') {
@@ -266,7 +303,7 @@ export const VoiceAgentModal: React.FC<VoiceAgentModalProps> = ({ isOpen, onClos
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             };
             setMessages((prev) => [...prev, botMsg]);
-            speakText(msg.text);
+            speakText(msg.text, msgRecvTime);
 
             if (msg.end_call) {
               setTimeout(() => endVoiceCall(), 3000);

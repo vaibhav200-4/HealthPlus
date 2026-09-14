@@ -22,13 +22,15 @@ from processor.hospital_db import (
     create_appointment,
     get_appointment_for_cancellation,
     cancel_appointment,
-    get_patient_appointments,
+    get_user_appointments,
     verify_appointment_booked,
     verify_appointment_cancelled,
     get_hospital_address,
     search_facilities_by_city,
     geocode_location,
     clean_location_string,
+    normalize_date,
+    is_past_date,
 )
 from processor.llm import normalize_phone
 
@@ -37,7 +39,7 @@ from processor.llm import normalize_phone
 # ---------------------------------------------------------------------------
 GENERIC_HOSPITAL_TOKENS = {
     "hospital", "hospitals", "clinic", "clinics", "medical", "centre", "center",
-    "care", "advanced", "multispeciality", "speciality", "specialty", "health",
+    "care", "advanced", "health",
     "healthcare", "nursing", "home", "institute", "institution", "department",
     "unit", "facility", "doctor", "doctors", "doc", "availability", "check", "appointment",
     "which", "what", "where", "available", "avail", "show", "list", "find", "are", "all", "the", "in", "at", "to", "for"
@@ -48,40 +50,57 @@ CONFIRMATION_WORDS = {
     "true", "yes please", "yes i want to book", "book appointment", "no", "nope", "nahi", "nahin"
 }
 
+FLOW_INTERRUPTING_INTENTS = {
+    "book_appointment",
+    "cancel_appointment",
+    "check_appointment",
+    "my_appointments",
+    "farewell",
+    "nearby_search",
+    "cancel_booking_process",
+}
+
 HOSPITAL_ALIASES = {
     # Sunrise Multispeciality Hospital
     "sunrise": "Sunrise Multispeciality Hospital",
     "sun rise": "Sunrise Multispeciality Hospital",
     "sunrise multi": "Sunrise Multispeciality Hospital",
     "sunrise multispeciality": "Sunrise Multispeciality Hospital",
+    "sunrise multispecialist": "Sunrise Multispeciality Hospital",
+    "multi speciality": "Sunrise Multispeciality Hospital",
+    "multispeciality": "Sunrise Multispeciality Hospital",
+    "multispecialist": "Sunrise Multispeciality Hospital",
+    "multi speciality hospital": "Sunrise Multispeciality Hospital",
+    "multispeciality hospital": "Sunrise Multispeciality Hospital",
     "sunrise hospital": "Sunrise Multispeciality Hospital",
 
     # Green Valley Medical Centre
     "green valley": "Green Valley Medical Centre",
-    "greenvalley": "Green Valley Medical Centre",
     "green valley medical": "Green Valley Medical Centre",
     "green valley centre": "Green Valley Medical Centre",
     "green valley center": "Green Valley Medical Centre",
+    "green valley hospital": "Green Valley Medical Centre",
 
-    # Central City Hospital
-    "central city": "Central City Hospital",
-    "central hospital": "Central City Hospital",
-    "central city hospital": "Central City Hospital",
+    # Care First Hospital
+    "care first": "Care First Hospital",
+    "care first hospital": "Care First Hospital",
+    "carefirst": "Care First Hospital",
 
-    # Harmony Care Hospital
-    "harmony": "Harmony Care Hospital",
-    "harmony care": "Harmony Care Hospital",
-    "harmony hospital": "Harmony Care Hospital",
+    # City Heart Institute
+    "city heart": "City Heart Institute",
+    "city heart institute": "City Heart Institute",
+    "city heart hospital": "City Heart Institute",
 
-    # Lifeline Advanced Hospital
-    "lifeline": "Lifeline Advanced Hospital",
-    "life line": "Lifeline Advanced Hospital",
-    "lifeline advanced": "Lifeline Advanced Hospital",
-    "lifeline hospital": "Lifeline Advanced Hospital",
+    # Apex Healthcare Clinic
+    "apex": "Apex Healthcare Clinic",
+    "apex healthcare": "Apex Healthcare Clinic",
+    "apex clinic": "Apex Healthcare Clinic",
+    "apex medical": "Apex Healthcare Clinic",
+    "apex hospital": "Apex Healthcare Clinic",
 
     # Vijay Nagar Medical Clinic
     "vijay nagar": "Vijay Nagar Medical Clinic",
-    "vijay": "Vijay Nagar Medical Clinic",
+    "vijaynagar": "Vijay Nagar Medical Clinic",
     "vjaya nagar": "Vijay Nagar Medical Clinic",
     "bjay nagar": "Vijay Nagar Medical Clinic",
     "vijay nagar clinic": "Vijay Nagar Medical Clinic",
@@ -93,6 +112,12 @@ HOSPITAL_ALIASES = {
     "palashia": "Old Palasia Medical Clinic",
     "old palashia": "Old Palasia Medical Clinic",
     "old palasia clinic": "Old Palasia Medical Clinic",
+    "old palacia": "Old Palasia Medical Clinic",
+    "palacia": "Old Palasia Medical Clinic",
+    "palacia clinic": "Old Palasia Medical Clinic",
+    "palacia medical clinic": "Old Palasia Medical Clinic",
+    "old palasia medical clinic": "Old Palasia Medical Clinic",
+
     # Rajwada Medical Clinic
     "rajwada": "Rajwada Medical Clinic",
     "rajbada": "Rajwada Medical Clinic",
@@ -129,18 +154,6 @@ HOSPITAL_ALIASES = {
     "bhawarkuan clinic": "Bhawarkuan Medical Clinic",
     "bhawarkuan medical": "Bhawarkuan Medical Clinic",
 
-    # Old Palasia Medical Clinic
-    "old palasia": "Old Palasia Medical Clinic",
-    "palasia": "Old Palasia Medical Clinic",
-    "palashia": "Old Palasia Medical Clinic",
-    "old palashia": "Old Palasia Medical Clinic",
-    "old palacia": "Old Palasia Medical Clinic",
-    "palacia": "Old Palasia Medical Clinic",
-    "palacia clinic": "Old Palasia Medical Clinic",
-    "palacia medical clinic": "Old Palasia Medical Clinic",
-    "old palasia clinic": "Old Palasia Medical Clinic",
-    "old palasia medical clinic": "Old Palasia Medical Clinic",
-
     # Sudama Nagar Medical Clinic
     "sudama nagar": "Sudama Nagar Medical Clinic",
     "sudama": "Sudama Nagar Medical Clinic",
@@ -163,7 +176,7 @@ def _normalize_hospital(raw: str) -> str | None:
         if alias in lower_raw or lower_raw in alias:
             return h_name
     
-    # 0.5. Check fuzzy match against alias keys (SequenceMatcher ratio >= 0.70)
+    # 0.5. Check fuzzy match against alias keys (SequenceMatcher ratio >= 0.85)
     best_alias_h = None
     best_alias_score = 0.0
     for alias, h_name in HOSPITAL_ALIASES.items():
@@ -172,7 +185,7 @@ def _normalize_hospital(raw: str) -> str | None:
             best_alias_score = score
             best_alias_h = h_name
 
-    if best_alias_score >= 0.70:
+    if best_alias_score >= 0.85:
         return best_alias_h
 
     # Strip common generic words to find meaningful tokens
@@ -207,7 +220,7 @@ def _normalize_hospital(raw: str) -> str | None:
                     best_score = score
                     best_h_name = h_name
 
-    if best_score >= 0.70:
+    if best_score >= 0.85:
         return best_h_name
 
     return None
@@ -310,7 +323,7 @@ def _resolve_doctor(name_hint: str, hospital_filter: str | None = None) -> tuple
         # Keep track of the original name so we can look it up in DB
         cand_map[c_clean] = c
 
-    matches = difflib.get_close_matches(clean.lower(), cand_map.keys(), n=1, cutoff=0.75)
+    matches = difflib.get_close_matches(clean.lower(), cand_map.keys(), n=1, cutoff=0.85)
     if matches:
         resolved_original = cand_map[matches[0]]
         return get_doctor_by_name(resolved_original)
@@ -343,6 +356,8 @@ class HospitalHandler:
         # Set by the WebSocket endpoint after resolving the JWT token.
         # Falls back to the anonymous voice-agent UUID if unauthenticated.
         self.user_id: str = "00000000-0000-0000-0000-000000000001"
+        self.user_name: str | None = None
+        self._name_resolved: bool = False
         
         self.current_intent: str | None = None
         self.confirmation_pending: bool = False
@@ -379,20 +394,41 @@ class HospitalHandler:
 
         text_clean_lower = re.sub(r'[^a-z0-9\s\']', '', user_text.lower().strip())
         explicit_ending = {"no thanks", "no thank you", "that's all", "thats all", "nothing else", "that is all", "i'm done", "im done", "bye", "goodbye", "nothing"}
-        if text_clean_lower in explicit_ending or (getattr(self, "awaiting_anything_else", False) and text_clean_lower in ("no", "nope", "nahi", "nahin")):
+        if getattr(self, "awaiting_anything_else", False):
+            self.awaiting_anything_else = False
+            if text_clean_lower in explicit_ending or text_clean_lower in ("no", "nope", "nahi", "nahin"):
+                self._reset()
+                return "Thank you for using Aradhya Hospital Assistant. Have a great day! [END_CALL]"
+            else:
+                self._reset()
+        elif text_clean_lower in explicit_ending:
             self._reset()
             return "Thank you for using Aradhya Hospital Assistant. Have a great day! [END_CALL]"
 
-        self.awaiting_anything_else = False
+        # ── Strong-intent guard: if the incoming intent is an explicit new
+        # action (nearby search, cancellation, listing, farewell), respect it
+        # over any stale booking state so the user isn't stuck in a loop.
+        STRONG_NEW_INTENTS = {
+            "nearby_search", "cancel_appointment", "cancel_booking_process",
+            "list_hospitals", "list_doctors", "farewell", "check_appointment",
+            "my_appointments",
+        }
+        if intent in STRONG_NEW_INTENTS and self.current_intent and self.current_intent != intent:
+            self._reset()
+            # Preserve only location_query if switching to nearby_search
+            if intent == "nearby_search":
+                self.location_query = intent_data.get("location_query")
 
         self._merge_entities(intent_data, user_text)
 
-        # Transition intent to book_appointment when doctor or hospital entity is present
-        if (self.doctor_name or self.hospital_name):
+        # Transition intent to book_appointment when doctor or hospital entity is present, UNLESS intent is explicit interrupt like cancel
+        if intent in FLOW_INTERRUPTING_INTENTS:
+            if intent in ("cancel_appointment", "my_appointments", "cancel_booking_process", "farewell"):
+                self.current_intent = intent
+        elif (self.doctor_name or self.hospital_name):
             if not self.current_intent or self.current_intent in ("book_appointment", "nearby_search"):
                 self.current_intent = "book_appointment"
-                if intent in ("unknown", "unrelated", "greeting", "list_hospitals", "hospital_information"):
-                    intent = "book_appointment"
+                intent = "book_appointment"
 
         # ── Follow-up after dynamic nearby search: user wants to book at registered hospital ──
         if getattr(self, "awaiting_registered_booking", False):
@@ -421,7 +457,7 @@ class HospitalHandler:
 
         # Fallback for LLM JSON failures or complete misclassifications during data collection
         if self.current_intent in ("book_appointment", "cancel_appointment", "check_appointment"):
-            if intent in ("unrelated", "unknown") and not any(intent_data.get(k) for k in ["patient_name", "phone", "address", "hospital_name", "doctor_name", "appointment_date", "appointment_time"]):
+            if intent not in FLOW_INTERRUPTING_INTENTS and not any(intent_data.get(k) for k in ["patient_name", "phone", "address", "hospital_name", "doctor_name", "appointment_date", "appointment_time"]):
                 text_clean = user_text.strip()
                 if text_clean:
                     if self.current_intent == "book_appointment":
@@ -450,9 +486,15 @@ class HospitalHandler:
                                 self.phone = digits[:10]
                                 intent = self.current_intent
 
-        # Robust intent override: if we are in a booking flow and the LLM misclassified a single-entity response
+        # Robust intent override: if we are in a booking flow, check for hospital names and single-entity responses
+        if self.current_intent == "book_appointment" and not self.hospital_name:
+            cand_h = _normalize_hospital(user_text) or _normalize_hospital(intent_data.get("hospital_name"))
+            if cand_h:
+                self.hospital_name = cand_h
+                intent = "book_appointment"
+
         if self.current_intent in ("book_appointment", "cancel_appointment", "check_appointment"):
-            if intent in ("unrelated", "unknown", "hospital_information", "doctor_information", "fee_information", "schedule_information"):
+            if intent not in ("cancel_booking_process", "farewell", "my_appointments"):
                 # If they provided ANY useful booking entity in this turn, force current intent
                 def _is_valid(val):
                     return bool(val and str(val).lower() not in ("none", "null", ""))
@@ -474,9 +516,7 @@ class HospitalHandler:
             if self.current_intent:
                 return self._resume_flow()
             self._reset()
-            return ("Hello! I am Aradhya Mishra, your hospital assistant. "
-                    "I can help you with hospital information, doctor availability, "
-                    "and appointment booking. How can I help you today?")
+            return self.generate_greeting()
                     
         if intent == "nearby_search":
             return self._handle_nearby_search(intent_data, user_text)
@@ -505,7 +545,7 @@ class HospitalHandler:
             
         if intent == "cancel_appointment":
             self.current_intent = "cancel_appointment"
-            return self._handle_cancel()
+            return self._handle_cancel(user_text)
             
         if intent == "cancel_booking_process":
             self._reset()
@@ -515,9 +555,13 @@ class HospitalHandler:
             self.current_intent = "check_appointment"
             return self._handle_check_appointment()
 
+        if intent == "my_appointments":
+            return self._handle_my_appointments()
+
         # Fallback for unrelated
         return ("I can help with hospital information and appointments. "
                 "What would you like to know?")
+
 
     def _merge_entities(self, d: dict, user_text: str = ""):
         extracted_patient = None
@@ -577,25 +621,23 @@ class HospitalHandler:
                     extracted_patient = None
                 break  # Stop once we have a valid doctor
 
-        # Only store as patient_name if the value is NOT a doctor and NOT a confirmation word
+        # Store as patient_name if extracted or if we are explicitly in the patient_name prompt state
         if extracted_patient:
             clean_p = extracted_patient.strip().lower().rstrip('.!?')
             if clean_p not in CONFIRMATION_WORDS and not _resolve_doctor(extracted_patient, self.hospital_name):
                 self.patient_name = extracted_patient
+        elif self.current_intent == "book_appointment" and self.doctor_name and self.appointment_date and self.appointment_time and not self.patient_name:
+            clean_name = re.sub(r'^(my\s+name\s+is\s+|i\s+am\s+|name\s+is\s+|myself\s+)', '', user_text, flags=re.I).strip().rstrip('.!?')
+            if clean_name and clean_name.lower() not in CONFIRMATION_WORDS and not _resolve_doctor(clean_name, self.hospital_name):
+                self.patient_name = clean_name.title()
 
-        # Phone
+        # Phone (must be at least 10 digits; ignore single/double digit numbers like '20' or '14' from dates)
         raw_ph = d.get("phone")
         if raw_ph:
             digits = re.sub(r"\D", "", str(raw_ph))
-            if digits:
-                # Speech recognition often delivers a phone number in several turns.
-                if len(digits) >= 10:
-                    self.phone = digits[:10]
-                    self.phone_buffer = self.phone
-                else:
-                    self.phone_buffer = (self.phone_buffer + digits)[-10:]
-                    if len(self.phone_buffer) == 10:
-                        self.phone = self.phone_buffer
+            if len(digits) >= 10:
+                self.phone = digits[:10]
+                self.phone_buffer = self.phone
 
         # Address
         raw_a = d.get("address")
@@ -658,6 +700,13 @@ class HospitalHandler:
 
         # Date/Time
         raw_date = d.get("appointment_date")
+        if not raw_date or str(raw_date).lower() in ("none", "null", ""):
+            if user_text:
+                norm_user_d = normalize_date(user_text)
+                if norm_user_d:
+                    date_phrase = re.search(r'\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*|\b(?:today|tomorrow|day after tomorrow))\b', user_text, re.I)
+                    raw_date = date_phrase.group(1) if date_phrase else user_text
+
         if raw_date and str(raw_date).lower() not in ("none", "null", ""):
             # STT might output a.m. or p.m. with dots. Remove dots to normalize.
             date_clean = re.sub(r'([ap])\.m\.', r'\1m', str(raw_date), flags=re.I)
@@ -667,10 +716,17 @@ class HospitalHandler:
                 flags=re.I,
             )
             if time_in_date:
-                self.appointment_time = time_in_date.group(0)
-                self.appointment_date = date_clean[:time_in_date.start()].strip()
+                if not self.appointment_time:
+                    self.appointment_time = time_in_date.group(0)
+                date_cand = date_clean[:time_in_date.start()].strip()
             else:
-                self.appointment_date = str(raw_date).strip()
+                date_cand = str(raw_date).strip()
+
+            date_cand = re.sub(r'\b(at|on|of|for)\b$', '', date_cand, flags=re.I).strip()
+            if normalize_date(date_cand):
+                self.appointment_date = date_cand
+            else:
+                self.appointment_date = None
 
         raw_time = d.get("appointment_time")
         if raw_time and str(raw_time).lower() not in ("none", "null", ""):
@@ -736,6 +792,7 @@ class HospitalHandler:
 
         spec_str = f" for {spec}" if spec else ""
         loc_disp = self.location_query.title()
+        self.location_query = None  # Clear stale location for next search
         res_str = "; ".join(items)
 
         top_phrase = " The top five nearest are: " if len(results) > 5 else " "
@@ -787,21 +844,23 @@ class HospitalHandler:
             self.hospital_name = None
 
         spec = d.get("specialization") or self.specialization
-        valid_specs = get_all_specializations() or ["Cardiology", "Gastroenterology", "Orthopaedics", "Gynaecology", "General Medicine", "Dermatology"]
-        
-        matched_spec = None
-        if spec:
-            for v in valid_specs:
-                if v.lower() in str(spec).lower() or str(spec).lower() in v.lower():
-                    matched_spec = v
-                    break
+        if not spec and user_text:
+            spec = _normalize_specialization(user_text)
+
+        matched_spec = _normalize_specialization(str(spec)) if spec else None
+        if not matched_spec and spec:
+            matched_spec = str(spec).strip()
 
         if not matched_spec:
+            valid_specs = get_all_specializations() or ["Cardiology", "Gastroenterology", "Orthopedics", "Gynecology", "General Medicine", "Dermatology"]
             specs_str = ", ".join(valid_specs[:6])
             return f"I can help you find a doctor from departments such as: {specs_str}. Which specialty do you need?"
 
         self.specialization = matched_spec
         rows = get_doctors_by_specialization(matched_spec, self.hospital_name)
+        if not rows and spec:
+            rows = get_doctors_by_specialization(str(spec), self.hospital_name)
+
         if not rows:
             return f"I couldn't find any {matched_spec} doctors."
 
@@ -873,6 +932,13 @@ class HospitalHandler:
         if not self.doctor_row:
             self.doctor_row = get_doctor_by_name(self.doctor_name)
 
+        if self.appointment_date:
+            norm_d = normalize_date(self.appointment_date)
+            if norm_d and is_past_date(norm_d):
+                past_d = self.appointment_date
+                self.appointment_date = None
+                return f"The date '{past_d}' is in the past. Please specify an upcoming date to check availability."
+
         if not self.appointment_date or not self.appointment_time:
             if not self.appointment_date:
                 return f"What date would you like to check for Dr. {self.doctor_name}?"
@@ -933,6 +999,14 @@ class HospitalHandler:
         if not self.hospital_name:
             self.hospital_name = doc[5]
 
+        # Guard against past dates
+        if self.appointment_date:
+            norm_d = normalize_date(self.appointment_date)
+            if norm_d and is_past_date(norm_d):
+                past_d = self.appointment_date
+                self.appointment_date = None
+                return f"The date '{past_d}' is in the past. Appointments can only be booked for today or upcoming dates. What upcoming date would you like to book?"
+
         if not self.appointment_date or not self.appointment_time:
             prompt = (
                 f"{display} specializes in {doc[2]} at {self.hospital_name}. "
@@ -954,7 +1028,10 @@ class HospitalHandler:
             self.appointment_time = None
             return f"I'm sorry, {display} is not available at that time. What other date or time works for you?"
 
-        # Slot is available, collect missing patient info
+        # Slot is available, collect missing patient info (auto-resolve from session if logged in)
+        if self.user_id and self.user_id != "00000000-0000-0000-0000-000000000001":
+            self._resolve_user_profile()
+
         if not self.patient_name:
             return "That slot is available! Please provide your full name."
 
@@ -965,7 +1042,7 @@ class HospitalHandler:
             return "Please provide a valid ten digit mobile number."
 
         if not self.address:
-            return "Got it. Finally, what is your address?"
+            self.address = "Main City Area"
 
         # All fields present – show summary and ask confirmation
         self.confirmation_pending = True
@@ -979,9 +1056,46 @@ class HospitalHandler:
             "Shall I confirm this booking? Say yes or no."
         )
 
+    def _resolve_user_profile(self):
+        """Auto-populates patient_name and phone from Supabase profiles/patients if authenticated."""
+        if not self.user_id or self.user_id == "00000000-0000-0000-0000-000000000001":
+            return
+        try:
+            from app.database.supabase_client import SupabaseService
+            profiles = SupabaseService.get_records("profiles", {"id": self.user_id})
+            if profiles:
+                p = profiles[0]
+                if not self.patient_name and p.get("full_name"):
+                    self.patient_name = p.get("full_name")
+                if not self.phone and p.get("phone"):
+                    self.phone = normalize_phone(p.get("phone"))
+                    
+            patients = SupabaseService.get_records("patients", {"profile_id": self.user_id})
+            if patients:
+                pt = patients[0]
+                if not self.patient_name and pt.get("name"):
+                    self.patient_name = pt.get("name")
+                if not self.phone and pt.get("phone"):
+                    self.phone = normalize_phone(pt.get("phone"))
+        except Exception as e:
+            print(f"[PROFILE RESOLVE ERROR] {e}")
+
     def _handle_confirmation(self, intent_data: dict, user_text: str) -> str:
         confirm = intent_data.get("confirmation")
         text_lower = user_text.lower().strip()
+
+        # Handle user name corrections during confirmation state
+        name_match = re.search(r'\b(?:my\s+full\s+name\s+is|my\s+name\s+is|name\s+is)\s+([a-zA-Z\s]{2,30})', user_text, re.I)
+        if name_match:
+            new_name = name_match.group(1).split(',')[0].strip().title()
+            if new_name:
+                self.patient_name = new_name
+                last_4 = self.phone[-4:] if (self.phone and len(self.phone) >= 4) else "N/A"
+                num_ending = " ".join(last_4)
+                return (f"Updated your name to {self.patient_name}. "
+                        f"Please confirm your booking: {self.doctor_name} at {self.hospital_name}, "
+                        f"on {self.appointment_date} at {self.appointment_time}, fee rupees 800, patient {self.patient_name}, number ending {num_ending}. "
+                        "Shall I confirm this booking? Say yes or no.")
 
         if confirm is None:
             if any(w in text_lower for w in ("yes", "yeah", "confirm", "ok", "haan", "ha", "bilkul", "thik", "theek", "sure", "yep", "do it")):
@@ -1023,7 +1137,82 @@ class HospitalHandler:
                 "Please try again or call the hospital directly.")
 
     # ── Cancellation flow ────────────────────────────────────────────────────
-    def _handle_cancel(self) -> str:
+    def _handle_cancel(self, user_text: str = "") -> str:
+        user_text_lower = user_text.lower().strip() if user_text else ""
+
+        # 1. Check if user is responding with selection index/number or doctor name to previously listed cancel_appointments
+        if getattr(self, "cancel_appointments", None) and len(self.cancel_appointments) > 0:
+            idx_match = re.search(r'\b(?:number|option|item|#)?\s*(\d{1,2})\b', user_text_lower)
+            target_app = None
+            if idx_match:
+                idx = int(idx_match.group(1)) - 1
+                if 0 <= idx < len(self.cancel_appointments):
+                    target_app = self.cancel_appointments[idx]
+            else:
+                for app in self.cancel_appointments:
+                    d_name = app.get("doctor_name", "") if isinstance(app, dict) else (app[1] if len(app) > 1 else "")
+                    d_clean = re.sub(r"^dr\.?\s*", "", d_name, flags=re.I).lower()
+                    if d_clean and (d_clean in user_text_lower or user_text_lower in d_clean):
+                        target_app = app
+                        break
+
+            if target_app:
+                app_id = target_app.get("id") if isinstance(target_app, dict) else target_app[0]
+                success = cancel_appointment(app_id)
+                if success and verify_appointment_cancelled(app_id):
+                    doc_disp = target_app.get("doctor_name") if isinstance(target_app, dict) else target_app[1]
+                    date_disp = target_app.get("date") if isinstance(target_app, dict) else (target_app[2] if len(target_app) > 2 else "")
+                    self._reset()
+                    return f"Your appointment with {doc_disp} on {date_disp} has been successfully cancelled."
+
+        # 2. Authenticated user lookup
+        if getattr(self, "user_id", None) and self.user_id != "00000000-0000-0000-0000-000000000001":
+            self._resolve_user_profile()
+            
+            from processor.hospital_db import get_user_appointments
+            user_apps = get_user_appointments(self.user_id)
+            upcoming = user_apps.get("upcoming", [])
+            
+            if not upcoming:
+                self._reset()
+                return "You don't have any active upcoming appointments to cancel."
+
+            target_app = None
+            doc_clean = re.sub(r"^dr\.?\s*", "", self.doctor_name, flags=re.I).lower() if self.doctor_name else None
+            norm_target_d = normalize_date(self.appointment_date) if self.appointment_date else None
+
+            candidates = []
+            for app in upcoming:
+                d_clean = re.sub(r"^dr\.?\s*", "", app.get("doctor_name", ""), flags=re.I).lower()
+                doc_matches = (not doc_clean) or (doc_clean in d_clean or d_clean in doc_clean)
+                date_matches = (not norm_target_d) or (app.get("date") == norm_target_d)
+                if doc_matches and date_matches:
+                    candidates.append(app)
+
+            if len(candidates) == 1:
+                target_app = candidates[0]
+            elif len(candidates) > 1:
+                self.cancel_appointments = candidates
+                lines = [f"{i}. {a.get('doctor_name')} on {a.get('date')} at {a.get('time')}" for i, a in enumerate(candidates, 1)]
+                return f"I found multiple matching appointments: {'; '.join(lines)}. Which one would you like to cancel? Please specify the number or doctor name."
+            elif not candidates and (doc_clean or norm_target_d):
+                self.cancel_appointments = upcoming
+                lines = [f"{i}. {a.get('doctor_name')} on {a.get('date')} at {a.get('time')}" for i, a in enumerate(upcoming, 1)]
+                return f"I couldn't find an appointment matching your criteria. Your upcoming appointments are: {'; '.join(lines)}. Which one would you like to cancel?"
+            elif len(upcoming) == 1:
+                target_app = upcoming[0]
+
+            if target_app:
+                app_id = target_app.get("id")
+                success = cancel_appointment(app_id)
+                if success and verify_appointment_cancelled(app_id):
+                    doc_disp = target_app.get("doctor_name", "Doctor")
+                    hosp_disp = target_app.get("hospital_name", "the hospital")
+                    date_disp = target_app.get("date", "")
+                    self._reset()
+                    return f"Your appointment with {doc_disp} at {hosp_disp} on {date_disp} has been successfully cancelled."
+
+        # 3. Unauthenticated user flow
         if not self.patient_name:
             return "Sure, I can help with that. May I have your full name?"
         if not self.phone:
@@ -1043,9 +1232,8 @@ class HospitalHandler:
             lines = []
             for i, a in enumerate(apps, 1):
                 lines.append(f"{i}. {a[1]} on {a[2]} at {a[3]}")
-            self._reset()
             return ("I found multiple appointments: " + "; ".join(lines) +
-                    ". Please call us directly to cancel a specific one.")
+                    ". Please specify the number or doctor name to cancel.")
 
         app_id = apps[0][0]
         success = cancel_appointment(app_id)
@@ -1076,12 +1264,93 @@ class HospitalHandler:
         return (f"Yes, {a[6]} has an appointment with {a[1]} "
                 f"at {a[5]} on {a[2]} at {a[3]}.")
 
+    def _handle_my_appointments(self) -> str:
+        """
+        Retrieves and formats existing & past appointments for the authenticated user session.
+        Does not ask for name/phone if self.user_id is available.
+        """
+        if not self.user_id or self.user_id == "anonymous":
+            return "I couldn't identify your session. Please make sure you are logged in to view your bookings."
+
+        data = get_user_appointments(self.user_id)
+        upcoming = data.get("upcoming", [])
+        previous = data.get("previous", [])
+
+        self._reset()
+
+        if not upcoming and not previous:
+            return "You don't have any appointments booked with us currently."
+
+        parts = []
+        if upcoming:
+            parts.append(f"You have {len(upcoming)} upcoming appointment{'s' if len(upcoming) > 1 else ''}:")
+            for app in upcoming:
+                parts.append(
+                    f"• {app['doctor_name']} at {app['hospital_name']} on {app['date']} at {app['time']} (Status: {app['status'].capitalize()})"
+                )
+
+        if previous:
+            if parts:
+                parts.append("\nYour previous appointment history:")
+            else:
+                parts.append("You have no upcoming appointments. Here is your previous appointment history:")
+            for app in previous[:3]:
+                parts.append(
+                    f"• {app['doctor_name']} at {app['hospital_name']} on {app['date']} at {app['time']} ({app['status'].capitalize()})"
+                )
+
+        return "\n".join(parts)
+
     def _resume_flow(self) -> str:
+        import random
+        user_name = self._get_user_first_name()
+        name_str = f" {user_name}" if user_name else ""
+        short_greetings = [f"Welcome back{name_str}!", f"Hello{name_str}!", f"Hi{name_str}!"]
+        short_greeting = random.choice(short_greetings)
+
         if self.current_intent == "book_appointment":
-            return "Hello! Let me continue with your booking. " + self._handle_booking()
+            return f"{short_greeting} Let me continue with your booking. " + self._handle_booking()
         if self.current_intent == "cancel_appointment":
-            return "Hello! Let me continue with your cancellation. " + self._handle_cancel()
-        return "Hello! How can I help you?"
+            return f"{short_greeting} Let me continue with your cancellation. " + self._handle_cancel()
+        return self.generate_greeting()
+
+    def _get_user_first_name(self) -> str | None:
+        if self._name_resolved:
+            return self.user_name
+
+        self._name_resolved = True
+        if getattr(self, "user_id", None) and self.user_id != "00000000-0000-0000-0000-000000000001":
+            try:
+                from processor.hospital_db import _cached_get_records
+                profiles = _cached_get_records("profiles", {"id": self.user_id})
+                if profiles and len(profiles) > 0:
+                    profile = profiles[0]
+                    raw_name = profile.get("full_name") or profile.get("name") or profile.get("patient_name")
+                    if raw_name:
+                        self.user_name = str(raw_name).strip().split()[0].capitalize()
+                        return self.user_name
+
+                patients = _cached_get_records("patients", {"profile_id": self.user_id})
+                if patients and len(patients) > 0 and patients[0].get("name"):
+                    self.user_name = str(patients[0].get("name")).strip().split()[0].capitalize()
+                    return self.user_name
+            except Exception as e:
+                print(f"[GREETING ERROR] Could not fetch profile for {self.user_id}: {e}")
+        
+        self.user_name = None
+        return None
+
+    def generate_greeting(self) -> str:
+        import random
+        user_name = self._get_user_first_name()
+        templates = [
+            "Hello{name}! I am Aradhya Mishra, your hospital assistant. I can help you with hospital information, doctor availability, and appointment booking. How can I help you today?",
+            "Hi{name}! I'm Aradhya Mishra, your health assistant. Need help finding a doctor or booking an appointment? Just let me know!",
+            "Welcome{name}! Aradhya Mishra here, your medical assistant. I can assist with doctor schedules and hospital details. What can I do for you today?"
+        ]
+        name_str = f" {user_name}" if user_name else ""
+        template = random.choice(templates)
+        return template.format(name=name_str)
 
     def _reset(self):
         self.hospital_name = None

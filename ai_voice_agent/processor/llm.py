@@ -107,7 +107,7 @@ class GroqLLM:
             "}\n\n"
             "Intent values: greeting, book_appointment, list_hospitals, list_doctors, nearby_search, "
             "doctor_information, specialization_information, fee_information, schedule_information, "
-            "hospital_information, check_availability, check_appointment, cancel_appointment, "
+            "hospital_information, check_availability, check_appointment, my_appointments, cancel_appointment, "
             "cancel_booking_process, patient_navigation, unrelated.\n\n"
             "RULES:\n"
             "- If the user asks to find hospitals, clinics, or doctors in/near a specific location or city (e.g. 'hospitals near me', 'doctors in Mumbai', 'clinics near Vijay Nagar', 'find cardiologists in Delhi'), set intent=nearby_search and set location_query to the city or area (e.g. 'Mumbai', 'Delhi', 'Vijay Nagar', 'near me').\n"

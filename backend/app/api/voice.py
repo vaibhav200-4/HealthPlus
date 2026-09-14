@@ -1,11 +1,18 @@
 import re
 import uuid
+import sys
+import os
 import logging
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Request
 from typing import Dict, Any
 from app.config import settings
 
 logger = logging.getLogger("hospital_app.voice")
+
+# Ensure ai_voice_agent directory is on sys.path for module resolution
+ai_agent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "ai_voice_agent"))
+if ai_agent_dir not in sys.path:
+    sys.path.insert(0, ai_agent_dir)
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Agent"])
 
@@ -33,16 +40,28 @@ def get_telephony_info():
     }
 
 @router.post("/session", response_model=Dict[str, Any])
-def create_voice_session(request: "Request" = None):
+def create_voice_session(request: Request = None):
     """Create a browser voice interaction session.
     
     If an Authorization: Bearer <token> header is provided, the real user_id
     is resolved and embedded so voice-booked appointments appear under the
-    logged-in user's account.
+    logged-in user's account and the greeting uses their name.
     """
-    from fastapi import Request as _Request
     session_id = str(uuid.uuid4())
     user_id = "00000000-0000-0000-0000-000000000001"  # anonymous fallback
+
+    if request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            try:
+                from app.auth.auth_handler import decode_access_token
+                payload = decode_access_token(token)
+                if payload and payload.get("user_id"):
+                    user_id = payload["user_id"]
+            except Exception as e:
+                logger.warning(f"Could not decode token in create_voice_session: {e}")
+
     return {
         "success": True,
         "session_id": session_id,
@@ -54,17 +73,18 @@ def create_voice_session(request: "Request" = None):
 def _rule_based_intent(text: str) -> dict:
     t = text.lower().strip()
 
+    # PRIORITY -1: Explicit Cancellation intent MUST override any doctor/hospital name match
+    if any(k in t for k in ["cancel", "cancellation", "delete appointment", "delete booking", "remove appointment"]):
+        return {"intent": "cancel_appointment"}
+
     # PRIORITY 0: Check if the text resolves to a known hospital in our DB *first*.
-    # This must happen before any location/nearby heuristics so that phrases like
-    # "I want to book in Vijaynagar Medical Clinic" are never mis-classified as
-    # nearby_search just because they contain "in <name>" + "clinic".
     try:
         from processor.hospital_handler import _normalize_hospital
         resolved_h = _normalize_hospital(text)
         if resolved_h:
             return {"intent": "book_appointment", "hospital_name": resolved_h}
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.warning(f"Hospital normalization failed: {_e}")
 
     # 0. Dynamic location-based nearby search rule.
     # Only fires when the matched location is NOT a known DB hospital (checked above).
@@ -81,6 +101,17 @@ def _rule_based_intent(text: str) -> dict:
         if city_match:
             loc_val = city_match.group(1).strip()
         return {"intent": "nearby_search", "location_query": loc_val}
+
+    # 0.5 Check for user asking about their own appointments / bookings (my_appointments)
+    my_app_patterns = [
+        r"\bmy (?:appointments|bookings|previous appointments|upcoming appointments|past appointments)\b",
+        r"\b(?:what|check|view|show|list) (?:my )?(?:appointments|bookings)\b",
+        r"\b(?:do i have|any) (?:upcoming|past|previous)?\s*(?:appointments|bookings)\b",
+        r"\bmy (?:previous|upcoming|past) (?:bookings|appointments)\b",
+        r"\bshow my (?:bookings|appointments)\b"
+    ]
+    if any(re.search(pat, t) for pat in my_app_patterns):
+        return {"intent": "my_appointments"}
 
     # 1. Hospital inquiry check MUST trigger for explicit listing questions/requests
     if any(k in t for k in ["list hospital", "list hospitals", "which hospital", "which hospitals", "available hospital", "available hospitals", "show hospital", "show hospitals", "what hospital", "what hospitals", "all hospitals", "hospitals available"]):
@@ -115,7 +146,10 @@ def _rule_based_intent(text: str) -> dict:
         return {"intent": "check_appointment"}
 
     # 8. Greetings
-    if any(k in t for k in ["hi", "hello", "hey", "namaste", "good morning", "good afternoon", "good evening"]):
+    greeting_words = [r"\bhi\b", r"\bhello\b", r"\bhey\b", r"\bnamaste\b", r"\bgood morning\b", r"\bgood afternoon\b", r"\bgood evening\b"]
+    greeting_phrases = ["who are you", "what can you do", "tell me about yourself", "about you"]
+    
+    if any(re.search(pat, t) for pat in greeting_words) or any(k in t for k in greeting_phrases):
         return {"intent": "greeting"}
 
     return {"intent": "unknown"}
@@ -215,30 +249,14 @@ async def voice_websocket_endpoint(
         if ai_agent_dir not in sys.path:
             sys.path.insert(0, ai_agent_dir)
             
-        from processor.hospital_handler import HospitalHandler
-        
-        handler = HospitalHandler()
-        handler.user_id = user_id  # propagate the authenticated user's ID into the booking flow
-        llm = None
-        if settings.GROQ_API_KEY and "your-groq-api-key" not in settings.GROQ_API_KEY:
-            try:
-                from processor.llm import GroqLLM
-                llm = GroqLLM()
-            except Exception as llm_err:
-                logger.warning(f"Could not load GroqLLM: {llm_err}. Using rule-based fallback processor.")
-                llm = None
+        from pipecat_web_pipeline import create_pipecat_web_session
 
-        # Send initial greeting
-        initial_msg = (
-            "Hello! I am Aradhya Mishra, your HealthPlus hospital assistant. "
-            "I can help you with doctor availability, hospital details, and appointment bookings. How can I help you today?"
+        # Create Pipecat Web Session with Silero VAD and TurnManager
+        processor = await create_pipecat_web_session(
+            websocket=websocket,
+            session_id=session_id,
+            user_id=user_id
         )
-        await websocket.send_json({
-            "type": "bot_text",
-            "text": initial_msg,
-            "voice_id": "95d51f79-c397-46f9-b49a-23763d3eaa2d",
-            "session_id": session_id
-        })
 
         while True:
             data = await websocket.receive_json()
@@ -246,178 +264,15 @@ async def voice_websocket_endpoint(
             if not user_text:
                 continue
 
-            logger.info(f"[WS Voice {session_id}] User text: {user_text}")
-
-            intent_data = None
-            if handler.current_intent == "nearby_search":
-                intent_data = {"intent": "nearby_search", "location": user_text, "location_query": user_text}
-            else:
-                rule_intent = _rule_based_intent(user_text)
-                if rule_intent.get("intent") != "unknown":
-                    intent_data = rule_intent
-                elif llm:
-                    try:
-                        intent_data = await asyncio.wait_for(llm.extract_intent(user_text, handler.state), timeout=1.5)
-                        if not intent_data or intent_data.get("intent") in ("unrelated", "unknown", None, ""):
-                            intent_data = rule_intent
-                    except Exception as ex:
-                        logger.warning(f"LLM intent fallback: {ex}")
-                        intent_data = rule_intent
-                else:
-                    intent_data = rule_intent
-
-            local_entities = _extract_voice_entities(user_text)
-            for key, value in local_entities.items():
-                if value and not intent_data.get(key):
-                    intent_data[key] = value
-
-            if handler.current_intent == "book_appointment" and handler.patient_name and not handler.phone:
-                from processor.llm import normalize_phone
-                phone_digits = normalize_phone(user_text)
-                if phone_digits:
-                    intent_data["phone"] = phone_digits
-
-            # A direct availability question should be answered immediately,
-            # while a booking request should continue through the booking flow.
-            availability_words = ("available", "availability", "free slot", "free time")
-            is_availability_query = (
-                any(word in user_text.lower() for word in availability_words)
-                and not any(word in user_text.lower() for word in ("book", "appointment", "schedule"))
-                and intent_data.get("doctor_name")
-                and intent_data.get("appointment_date")
-                and intent_data.get("appointment_time")
-            )
-            if is_availability_query:
-                intent_data["intent"] = "check_availability"
-            
-            # CRITICAL: If we are in an active booking flow and got a generic intent
-            # (like "greeting" because no keyword matched), preserve the flow intent
-            # and try to use the user text as the next expected entity.
-            if handler.current_intent in ("book_appointment", "cancel_appointment", "check_appointment"):
-                if intent_data.get("intent") in ("greeting", "unrelated", "unknown"):
-                    # Check if intent_data already has useful entities from the LLM
-                    has_entity = any(
-                        intent_data.get(k) and str(intent_data.get(k)).lower() not in ("none", "null", "")
-                        for k in ["doctor_name", "hospital_name", "appointment_date", "appointment_time", "patient_name", "phone", "address"]
-                    )
-                    if not has_entity:
-                        # Try to intelligently extract the next needed entity from raw text
-                        entity_extracted = False
-                        
-                        # 1. Try doctor name (if doctor not yet set)
-                        if not handler.doctor_name:
-                            from processor.hospital_handler import _resolve_doctor
-                            doc = _resolve_doctor(user_text, handler.hospital_name)
-                            if doc:
-                                intent_data["doctor_name"] = doc[1]
-                                entity_extracted = True
-                                logger.info(f"[WS Voice {session_id}] Resolved doctor: {doc[1]}")
-                        
-                        # 2. Try hospital name (if hospital not yet set)
-                        if not entity_extracted and not handler.hospital_name:
-                            from processor.hospital_handler import _normalize_hospital
-                            hosp = _normalize_hospital(user_text)
-                            if hosp:
-                                intent_data["hospital_name"] = hosp
-                                entity_extracted = True
-                                logger.info(f"[WS Voice {session_id}] Resolved hospital: {hosp}")
-                        
-                        # 3. Try date/time (if doctor is set but date/time not yet set)
-                        if not entity_extracted and handler.doctor_name and (not handler.appointment_date or not handler.appointment_time):
-                            import re
-                            from datetime import datetime, timedelta
-                            text_lower = user_text.lower().strip()
-                            
-                            # Parse time like "10 AM", "10:00 AM", "3 PM"
-                            time_match = re.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?!\w)', user_text, re.I)
-                            time_str = None
-                            if time_match:
-                                time_str = time_match.group(0).strip()
-                                time_str = re.sub(r'([ap])\.m\.', r'\1m', time_str, flags=re.I)
-                            
-                            # Parse date: "tomorrow", "day after tomorrow", explicit dates
-                            date_str = None
-                            if "tomorrow" in text_lower:
-                                if "day after" in text_lower:
-                                    date_str = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-                                else:
-                                    date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-                            elif "today" in text_lower:
-                                date_str = datetime.now().strftime("%Y-%m-%d")
-                            else:
-                                # Try to parse explicit dates like "7 September", "September 7", "2026-09-07"
-                                date_patterns = [
-                                    r'(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)',
-                                    r'(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})',
-                                    r'(\d{4}-\d{2}-\d{2})',
-                                    r'(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})',
-                                ]
-                                for pat in date_patterns:
-                                    dm = re.search(pat, text_lower)
-                                    if dm:
-                                        # Remove the time part from the text to get the date portion
-                                        date_text = user_text
-                                        if time_match:
-                                            date_text = user_text[:time_match.start()] + user_text[time_match.end():]
-                                        date_str = date_text.strip().rstrip('.,;:')
-                                        if not date_str and dm:
-                                            date_str = dm.group(0)
-                                        break
-                            
-                            if date_str or time_str:
-                                if date_str:
-                                    intent_data["appointment_date"] = date_str
-                                if time_str:
-                                    intent_data["appointment_time"] = time_str
-                                entity_extracted = True
-                                logger.info(f"[WS Voice {session_id}] Parsed date={date_str}, time={time_str}")
-                        
-                        # 4. Try patient details (if doctor + date/time set)
-                        if not entity_extracted and handler.doctor_name and handler.appointment_date and handler.appointment_time:
-                            from processor.llm import normalize_phone
-                            text_clean = user_text.strip()
-                            if not handler.patient_name:
-                                intent_data["patient_name"] = text_clean
-                                entity_extracted = True
-                            elif not handler.phone:
-                                digits = normalize_phone(text_clean)
-                                if digits:
-                                    # Keep partial chunks; HospitalHandler combines them.
-                                    intent_data["phone"] = digits
-                                    entity_extracted = True
-                            elif not handler.address:
-                                intent_data["address"] = text_clean
-                                entity_extracted = True
-                    
-                    # Always preserve the booking flow intent
-                    intent_data["intent"] = handler.current_intent
-            
-            logger.info(f"[WS Voice {session_id}] Final intent: {intent_data}")
-
-            response_text = handler.process_intent(intent_data, user_text)
-            
-            should_end = "[END_CALL]" in response_text
-            clean_response = response_text.replace("[END_CALL]", "").strip()
-
-            await websocket.send_json({
-                "type": "bot_text",
-                "text": clean_response,
-                "voice_id": "95d51f79-c397-46f9-b49a-23763d3eaa2d",
-                "intent": intent_data.get("intent"),
-                "end_call": should_end,
-                "state": handler.state
-            })
-
-            if should_end:
-                break
+            logger.info(f"[WS Pipecat {session_id}] User text: {user_text}")
+            await processor.process_user_text(user_text)
 
     except WebSocketDisconnect:
-        logger.info(f"Voice WebSocket disconnected for session: {session_id}")
+        logger.info(f"Voice WebSocket client disconnected for session: {session_id}")
     except Exception as e:
-        logger.error(f"Error in Voice WebSocket session {session_id}: {e}")
+        logger.error(f"Error in voice WebSocket session {session_id}: {e}", exc_info=True)
         try:
             await websocket.send_json({"type": "error", "message": "Voice processing error"})
         except Exception:
             pass
-        finally:
-            await websocket.close()
+
