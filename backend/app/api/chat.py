@@ -7,6 +7,8 @@ from app.schemas.chat_schema import ChatMessageCreate, ChatMessageResponse, Chat
 from app.database.supabase_client import SupabaseService
 from app.auth.auth_handler import get_current_user
 from app.config import settings
+from app.services.patient_service import PatientService
+from app.services.episode_service import EpisodeService
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
@@ -18,12 +20,22 @@ async def send_web_chat_message(
     user_id = current_user["id"]
     session_id = data.session_id or f"session_{user_id[:8]}"
 
+    # Resolve the patient's currently active episode ONCE per turn, so both the
+    # user message and the assistant's reply get tagged consistently — even if
+    # get_or_create_active_episode() would otherwise create two different episodes
+    # if called separately before and after the agent runs.
+    patient_rec = PatientService.resolve_patient(user_id)
+    patient_id = patient_rec.get("id") if patient_rec else None
+    active_episode = EpisodeService.get_or_create_active_episode(patient_id) if patient_id else None
+    episode_id = active_episode.get("id") if active_episode else None
+
     # 1. Explicitly save user message to chat_messages table in Supabase
     user_msg_record = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
         "channel": "web",
         "session_id": session_id,
+        "episode_id": episode_id,
         "role": "user",
         "message": data.message,
         "telegram_id": current_user.get("telegram_id")
@@ -84,6 +96,7 @@ async def send_web_chat_message(
         "user_id": user_id,
         "channel": "web",
         "session_id": session_id,
+        "episode_id": episode_id,
         "role": "assistant",
         "message": ai_response_text,
         "telegram_id": current_user.get("telegram_id")

@@ -16,6 +16,11 @@ def create_manual_appointment(
     current_user: dict = Depends(get_current_user)
 ):
     user_id = current_user["id"]
+
+    from app.services.episode_service import EpisodeService
+    active_episode = EpisodeService.get_or_create_active_episode(user_id)
+    episode_id = active_episode.get("id") if active_episode else None
+
     success, message, app_data = BookingService.create_appointment(
         user_id=user_id,
         doctor_id=data.doctor_id,
@@ -27,7 +32,8 @@ def create_manual_appointment(
         patient_name=data.patient_name,
         patient_phone=data.patient_phone or current_user.get("phone", ""),
         patient_email=data.patient_email or current_user.get("email", ""),
-        notes=data.notes or ""
+        notes=data.notes or "",
+        episode_id=episode_id
     )
 
     if not success:

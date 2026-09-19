@@ -267,22 +267,31 @@ class SummaryService:
         completed_records = [r for r in records if r.get("ocr_status") == "completed"]
         completed_records.sort(key=lambda x: x.get("ocr_processed_at") or x.get("created_at") or "")
 
-        # 2. Episode-scoped Patient Chat Messages (bounded by started_at and resolved_at/now)
+        # 2. Episode-scoped Patient Chat Messages — direct episode_id match.
+        # Falls back to the old timestamp-window filter only for rows written
+        # before the episode_id column existed (episode_id is null on those).
         all_chats = []
         seen_chats = set()
         for cid in candidate_ids:
             c_list = SupabaseService.get_records("chat_messages", {"user_id": cid})
             for c in c_list:
-                if c.get("id") and c["id"] not in seen_chats:
-                    seen_chats.add(c["id"])
-                    c_dt = _parse_ts(c.get("created_at"))
-                    if c_dt:
-                        # Time window check
-                        if start_dt and c_dt < start_dt:
-                            continue
-                        if end_dt and c_dt > end_dt:
-                            continue
+                if not c.get("id") or c["id"] in seen_chats:
+                    continue
+                seen_chats.add(c["id"])
+
+                if c.get("episode_id"):
+                    if c["episode_id"] == episode_id:
                         all_chats.append(c)
+                    continue
+
+                # Legacy row with no episode_id — fall back to time-window guess
+                c_dt = _parse_ts(c.get("created_at"))
+                if c_dt:
+                    if start_dt and c_dt < start_dt:
+                        continue
+                    if end_dt and c_dt > end_dt:
+                        continue
+                    all_chats.append(c)
 
         # Filter out logistical messages and sort chronologically
         clinical_chats = [
@@ -293,21 +302,30 @@ class SummaryService:
         recent_episode_chats = clinical_chats[:30]
         recent_episode_chats.reverse()  # Restore chronological order for prompt
 
-        # 3. Episode-scoped Patient Intake Notes (time-window filter as approximate boundary)
+                # 3. Episode-scoped Patient Intake Notes — direct episode_id match, with
+        # the same legacy-row fallback as chat_messages above.
         intake_notes = []
         seen_intake = set()
         for cid in candidate_ids:
             notes = SupabaseService.get_records("patient_intake_notes", {"patient_id": cid})
             for n in notes:
-                if n.get("id") and n["id"] not in seen_intake:
-                    seen_intake.add(n["id"])
-                    n_dt = _parse_ts(n.get("created_at"))
-                    if n_dt:
-                        if start_dt and n_dt < start_dt:
-                            continue
-                        if end_dt and n_dt > end_dt:
-                            continue
+                if not n.get("id") or n["id"] in seen_intake:
+                    continue
+                seen_intake.add(n["id"])
+
+                if n.get("episode_id"):
+                    if n["episode_id"] == episode_id:
                         intake_notes.append(n)
+                    continue
+
+                # Legacy row with no episode_id — fall back to time-window guess
+                n_dt = _parse_ts(n.get("created_at"))
+                if n_dt:
+                    if start_dt and n_dt < start_dt:
+                        continue
+                    if end_dt and n_dt > end_dt:
+                        continue
+                    intake_notes.append(n)
 
         # 4. Episode-scoped Appointments (time-window filter as approximate boundary)
         appointments = []

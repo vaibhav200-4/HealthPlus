@@ -73,7 +73,7 @@ def _get_groq(api_key: str):
 
     model_name = os.getenv(
         "GROQ_MODEL",
-        "openai/gpt-oss-20b"
+        "openai/gpt-oss-120b"
     )
 
     return ChatGroq(

@@ -23,7 +23,8 @@ class BookingService:
         patient_phone: str = "",
         patient_email: str = "",
         notes: str = "",
-        idempotency_key: Optional[str] = None
+        idempotency_key: Optional[str] = None,
+        episode_id: Optional[str] = None
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Unified manual and AI booking validation & creation service with:
@@ -112,7 +113,8 @@ class BookingService:
                 "patient_phone": patient_phone,
                 "patient_email": patient_email,
                 "notes": notes,
-                "idempotency_key": idempotency_key
+                "idempotency_key": idempotency_key,
+                "episode_id": episode_id
             }
 
             try:

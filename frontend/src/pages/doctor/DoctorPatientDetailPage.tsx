@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
 import { MedicalRecord, Appointment, Episode } from '../../types';
 import { StatusBadge } from '../../components/doctor/StatusBadge';
 import { MarkdownRenderer } from '../../components/MarkdownRenderer';
@@ -34,7 +33,6 @@ import {
 export const DoctorPatientDetailPage: React.FC = () => {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'records'>('overview');
   const [patientProfile, setPatientProfile] = useState<any>(null);
@@ -46,6 +44,8 @@ export const DoctorPatientDetailPage: React.FC = () => {
   const [pastEpisodes, setPastEpisodes] = useState<Episode[]>([]);
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<string | null>(null);
   const [resolvingEpisode, setResolvingEpisode] = useState<boolean>(false);
+  const [summaryLoading, setSummaryLoading] = useState<boolean>(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   // Modal State
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
@@ -63,12 +63,51 @@ export const DoctorPatientDetailPage: React.FC = () => {
     }
   }, [patientId]);
 
-  const fetchEpisodes = async (targetId: string) => {
+  useEffect(() => {
+    if (activeEpisode?.id) {
+      fetchEpisodeSummary(activeEpisode.id);
+    }
+  }, [activeEpisode?.id]);
+
+  const fetchEpisodeSummary = async (episodeId: string) => {
+    setSummaryLoading(true);
+    setSummaryError(null);
     try {
-      const res = await api.get(`/episodes/patient/${targetId}`);
+      const res = await api.get(`/episodes/${episodeId}/summary`);
       if (res?.data) {
-        setActiveEpisode(res.data.active_episode || null);
-        setPastEpisodes(res.data.past_episodes || []);
+        const fetchedSummary = res.data.summary || null;
+        setActiveEpisode((prev) =>
+          prev
+            ? {
+                ...prev,
+                summary: fetchedSummary,
+                summary_generated_at: res.data.generated_at || prev.summary_generated_at,
+              }
+            : null
+        );
+      }
+    } catch (err) {
+      console.error('Failed to fetch episode summary:', err);
+      setSummaryError("Couldn't load summary — try refreshing.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const fetchEpisodes = async (targetIds: string[]) => {
+    try {
+      for (const id of targetIds) {
+        const res = await api.get(`/episodes/patient/${id}`).catch(() => null);
+        if (res?.data) {
+          if (res.data.active_episode) {
+            setActiveEpisode(res.data.active_episode);
+            setPastEpisodes(res.data.past_episodes || []);
+            return;
+          }
+          if (res.data.past_episodes?.length) {
+            setPastEpisodes(res.data.past_episodes || []);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch patient episodes:', err);
@@ -95,9 +134,8 @@ export const DoctorPatientDetailPage: React.FC = () => {
         )
       );
 
-      const primaryId = targetIds[0] || patientId || '';
-      if (primaryId) {
-        fetchEpisodes(primaryId);
+      if (targetIds.length > 0) {
+        fetchEpisodes(targetIds);
       }
 
       const recordPromises = targetIds.map((id) =>
@@ -137,6 +175,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
 
   const handleRefreshSummary = async (episodeId: string) => {
     setRefreshingSummary(true);
+    setSummaryError(null);
     try {
       const res = await api.post(`/episodes/${episodeId}/summary/regenerate`);
       if (res?.data?.summary && activeEpisode) {
@@ -160,8 +199,14 @@ export const DoctorPatientDetailPage: React.FC = () => {
     setResolvingEpisode(true);
     try {
       await api.post(`/episodes/${episodeId}/resolve`);
-      const primaryId = patientProfile?.patient_id || patientId;
-      if (primaryId) fetchEpisodes(primaryId);
+      const targetIds = Array.from(
+        new Set(
+          [patientId, patientProfile?.patient_id, patientProfile?.profile_id].filter(
+            (id): id is string => Boolean(id) && typeof id === 'string'
+          )
+        )
+      );
+      if (targetIds.length > 0) fetchEpisodes(targetIds);
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to resolve episode');
     } finally {
@@ -326,7 +371,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
               <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Active Episode</span>
               <p className="text-sm font-extrabold text-tealmed-800 flex items-center gap-1">
                 <Activity className="w-4 h-4 text-tealmed-600" />
-                {activeEpisode?.condition || 'General Care'}
+                {activeEpisode ? (activeEpisode.condition || 'General Care') : 'None'}
               </p>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
@@ -339,21 +384,33 @@ export const DoctorPatientDetailPage: React.FC = () => {
           <div className="bg-gradient-to-br from-teal-50/70 via-white to-emerald-50/50 rounded-3xl border border-tealmed-200/90 p-6 sm:p-8 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-tealmed-100/80 pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-tealmed-600 text-white flex items-center justify-center shadow-md shadow-tealmed-600/20">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-md ${
+                  activeEpisode ? 'bg-tealmed-600 text-white shadow-tealmed-600/20' : 'bg-slate-200 text-slate-500 shadow-slate-200/50'
+                }`}>
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-extrabold text-slate-900">
-                      Active Episode: {activeEpisode?.condition || 'General Health Care'}
+                      {activeEpisode ? `Active Episode: ${activeEpisode.condition || 'General Health Care'}` : 'No Active Episode'}
                     </h3>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-200 uppercase tracking-wider">
-                      Active Episode
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
+                      activeEpisode
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}>
+                      {activeEpisode ? 'Active Episode' : 'No Active Episode'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Started: {activeEpisode?.started_at ? new Date(activeEpisode.started_at).toLocaleDateString() : 'Recent'}
-                    {activeEpisode?.summary_generated_at ? ` • Summary updated ${new Date(activeEpisode.summary_generated_at).toLocaleTimeString()}` : ''}
+                    {activeEpisode ? (
+                      <>
+                        Started: {activeEpisode.started_at ? new Date(activeEpisode.started_at).toLocaleDateString() : 'Recent'}
+                        {activeEpisode.summary_generated_at ? ` • Summary updated ${new Date(activeEpisode.summary_generated_at).toLocaleTimeString()}` : ''}
+                      </>
+                    ) : (
+                      'No active clinical episode currently in progress for this patient.'
+                    )}
                   </p>
                 </div>
               </div>
@@ -381,13 +438,35 @@ export const DoctorPatientDetailPage: React.FC = () => {
               )}
             </div>
 
-            {activeEpisode?.summary ? (
+            {summaryLoading ? (
+              <div className="bg-white/80 p-6 rounded-2xl border border-tealmed-100/70 shadow-2xs animate-pulse space-y-3">
+                <div className="h-4 bg-slate-200 rounded w-1/3"></div>
+                <div className="h-3 bg-slate-200 rounded w-full"></div>
+                <div className="h-3 bg-slate-200 rounded w-5/6"></div>
+                <div className="h-3 bg-slate-200 rounded w-4/6"></div>
+              </div>
+            ) : summaryError ? (
+              <div className="p-6 text-center bg-rose-50/70 rounded-2xl border border-rose-200 text-xs text-rose-700 flex flex-col items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-rose-600 mx-auto" />
+                <span>{summaryError}</span>
+                {activeEpisode?.id && (
+                  <button
+                    onClick={() => fetchEpisodeSummary(activeEpisode.id)}
+                    className="mt-1 px-3.5 py-1.5 bg-white text-rose-800 rounded-xl border border-rose-200 text-xs font-bold hover:bg-rose-100 transition-colors inline-flex items-center gap-1.5 shadow-2xs"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Try Refreshing
+                  </button>
+                )}
+              </div>
+            ) : activeEpisode?.summary ? (
               <div className="bg-white/80 p-6 rounded-2xl border border-tealmed-100/70 shadow-2xs">
                 <MarkdownRenderer content={activeEpisode.summary} />
               </div>
             ) : (
               <div className="p-6 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500">
-                No OCR-extracted summary available yet for this episode. Upload medical documents or chat with AI assistant to synthesize an episode summary.
+                {activeEpisode
+                  ? 'No OCR-extracted summary available yet for this episode. Upload medical documents or chat with AI assistant to synthesize an episode summary.'
+                  : 'No active clinical episode found for this patient profile. Initiate care by uploading medical records or logging a consultation.'}
               </div>
             )}
           </div>

@@ -36,7 +36,10 @@ async def get_checkpointer() -> Any:
                     min_size=1,
                     max_size=10,
                     open=False,
-                    kwargs={"autocommit": True}
+                    max_idle=300,       # recycle a connection after 5 min idle, before Supabase kills it
+                    max_lifetime=1800,  # force-refresh every 30 min regardless
+                    kwargs={"autocommit": True},
+                    check=AsyncConnectionPool.check_connection,  # pings before handing out a conn
                 )
                 await _pool.open()
                 _checkpointer = AsyncPostgresSaver(conn=_pool)

@@ -182,6 +182,10 @@ async def book_appointment(
 
         idempotency_key = f"{thread_id}-{doctor_id}-{date}-{start_time}"
 
+        from app.services.episode_service import EpisodeService
+        active_episode = EpisodeService.get_or_create_active_episode(user_id)
+        episode_id = active_episode.get("id") if active_episode else None
+
         success, msg, app_data = BookingService.create_appointment(
             user_id=user_id,
             doctor_id=doctor_id,
@@ -194,7 +198,8 @@ async def book_appointment(
             patient_phone=patient_phone,
             patient_email=patient_email,
             notes=notes or "",
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
+            episode_id=episode_id
         )
         return {"success": success, "message": msg, "appointment": app_data}
 
@@ -215,10 +220,15 @@ async def save_intake_note(
     appointment_id = (state.get("booking_draft") or {}).get("appointment_id")
 
     def _save():
+        from app.services.episode_service import EpisodeService
+        active_episode = EpisodeService.get_or_create_active_episode(patient_id)
+        episode_id = active_episode.get("id") if active_episode else None
+
         note_data = {
             "id": str(uuid.uuid4()),
             "patient_id": patient_id,
             "appointment_id": appointment_id,
+            "episode_id": episode_id,
             "thread_id": thread_id,
             "content": content,
             "structured_data": structured_data or {},

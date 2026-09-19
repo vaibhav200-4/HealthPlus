@@ -11,6 +11,8 @@ from app.database.supabase_client import SupabaseService
 from app.auth.auth_handler import create_n8n_context_token, auth_rate_limiter
 from app.api.auth import get_or_create_patient_code
 from app.config import settings
+from app.services.patient_service import PatientService
+from app.services.episode_service import EpisodeService
 
 logger = logging.getLogger("hospital_app.telegram")
 
@@ -106,6 +108,7 @@ def resolve_telegram_context(
         auth_rate_limiter.check(request)
     return _resolve_telegram_context_core(data.telegram_id, data.full_name)
 
+
 def _log_telegram_message_core(telegram_id: str, session_id: str, role: str, message: str):
     """Internal helper to explicitly log Telegram chat turns to Supabase chat_messages."""
     user_id = None
@@ -113,11 +116,20 @@ def _log_telegram_message_core(telegram_id: str, session_id: str, role: str, mes
     if profiles:
         user_id = profiles[0]["id"]
 
+    episode_id = None
+    if user_id:
+        patient_rec = PatientService.resolve_patient(user_id)
+        patient_id = patient_rec.get("id") if patient_rec else None
+        if patient_id:
+            active_episode = EpisodeService.get_or_create_active_episode(patient_id)
+            episode_id = active_episode.get("id") if active_episode else None
+
     msg_record = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
         "channel": "telegram",
         "session_id": session_id,
+        "episode_id": episode_id,
         "role": role,
         "message": message,
         "telegram_id": telegram_id

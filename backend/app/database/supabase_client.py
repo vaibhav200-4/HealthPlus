@@ -1,7 +1,8 @@
 import json
 import uuid
 import logging
-from typing import Dict, List, Any, Optional
+import httpx
+from typing import Dict, List, Any, Optional, Callable
 from app.config import settings
 
 logger = logging.getLogger("hospital_app.supabase")
@@ -37,15 +38,20 @@ _LOCAL_STORE: Dict[str, List[Dict[str, Any]]] = {
 
 _supabase_client = None
 
+# Errors that mean "the pooled connection was already dead when we tried to use it" —
+# safe to retry once with a fresh client, since no request actually reached the server.
+_RETRYABLE_ERRORS = (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError)
+
+
 def get_supabase_client():
     global _supabase_client
     if _supabase_client is not None:
         return _supabase_client
-    
+
     if (
-        settings.SUPABASE_URL 
-        and "your-supabase-project" not in settings.SUPABASE_URL 
-        and settings.SUPABASE_ANON_KEY 
+        settings.SUPABASE_URL
+        and "your-supabase-project" not in settings.SUPABASE_URL
+        and settings.SUPABASE_ANON_KEY
         and "your-supabase-anon-key" not in settings.SUPABASE_ANON_KEY
     ):
         try:
@@ -57,9 +63,44 @@ def get_supabase_client():
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}.")
             raise DatabaseError(f"Supabase initialization error: {e}") from e
-    
+
     logger.info("Using local database fallback mode (Supabase not configured).")
     return None
+
+
+def _reset_client():
+    """Discard the current client so the next get_supabase_client() call builds
+    a brand-new one with a fresh underlying httpx connection pool."""
+    global _supabase_client
+    _supabase_client = None
+
+
+def _run_with_retry(build_query: Callable[[Any], Any], table: str, action: str):
+    """
+    Runs a Supabase query. If it fails because a pooled HTTP connection was already
+    dead (e.g. 'Server disconnected'), discards the client and retries exactly once
+    with a fresh one. Any other exception (real query errors, auth errors, etc.)
+    is raised immediately without retrying.
+
+    build_query: a function that takes a supabase client and returns the executed result.
+    """
+    client = get_supabase_client()
+    if client is None:
+        return None
+
+    try:
+        return build_query(client)
+    except _RETRYABLE_ERRORS as e:
+        logger.warning(
+            f"[SUPABASE RETRY] '{action}' on '{table}' hit a dead pooled connection "
+            f"({type(e).__name__}: {e}). Retrying once with a fresh client..."
+        )
+        _reset_client()
+        fresh_client = get_supabase_client()
+        if fresh_client is None:
+            raise
+        return build_query(fresh_client)
+
 
 class SupabaseService:
     @staticmethod
@@ -70,13 +111,16 @@ class SupabaseService:
     def get_records(table: str, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         client = get_supabase_client()
         if client:
-            try:
-                query = client.table(table).select("*")
+            def _query(c):
+                query = c.table(table).select("*")
                 if filters:
                     for k, v in filters.items():
                         query = query.eq(k, v)
                 res = query.execute()
                 return res.data if res.data is not None else []
+
+            try:
+                return _run_with_retry(_query, table, "get_records")
             except Exception as e:
                 logger.error(f"Error fetching from Supabase table '{table}': {e}")
                 raise DatabaseError(f"Fetch from table '{table}' failed: {e}") from e
@@ -108,11 +152,14 @@ class SupabaseService:
 
         client = get_supabase_client()
         if client:
-            try:
-                res = client.table(table).insert(data).execute()
+            def _query(c):
+                res = c.table(table).insert(data).execute()
                 if res.data:
                     return res.data[0]
                 return data
+
+            try:
+                return _run_with_retry(_query, table, "insert_record")
             except Exception as e:
                 logger.error(f"Error inserting into Supabase table '{table}': {e}")
                 raise DatabaseError(f"Insert into table '{table}' failed: {e}") from e
@@ -127,11 +174,14 @@ class SupabaseService:
     def update_record(table: str, record_id: Any, updates: Dict[str, Any], id_field: str = "id") -> Optional[Dict[str, Any]]:
         client = get_supabase_client()
         if client:
-            try:
-                res = client.table(table).update(updates).eq(id_field, str(record_id)).execute()
+            def _query(c):
+                res = c.table(table).update(updates).eq(id_field, str(record_id)).execute()
                 if res.data:
                     return res.data[0]
                 return None
+
+            try:
+                return _run_with_retry(_query, table, "update_record")
             except Exception as e:
                 logger.error(f"Error updating Supabase table '{table}': {e}")
                 raise DatabaseError(f"Update on table '{table}' failed: {e}") from e
@@ -150,9 +200,12 @@ class SupabaseService:
     def delete_record(table: str, record_id: Any, id_field: str = "id") -> bool:
         client = get_supabase_client()
         if client:
-            try:
-                client.table(table).delete().eq(id_field, str(record_id)).execute()
+            def _query(c):
+                c.table(table).delete().eq(id_field, str(record_id)).execute()
                 return True
+
+            try:
+                return _run_with_retry(_query, table, "delete_record")
             except Exception as e:
                 logger.error(f"Error deleting from Supabase table '{table}': {e}")
                 raise DatabaseError(f"Delete from table '{table}' failed: {e}") from e
@@ -161,4 +214,3 @@ class SupabaseService:
         records = _LOCAL_STORE.get(table, [])
         _LOCAL_STORE[table] = [r for r in records if str(r.get(id_field)) != str(record_id)]
         return True
-
