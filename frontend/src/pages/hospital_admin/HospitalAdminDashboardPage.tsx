@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { HospitalAdminSidebar } from '../../components/HospitalAdminSidebar';
 import { 
   Stethoscope, 
   Building2, 
@@ -41,9 +40,7 @@ export const HospitalAdminDashboardPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]">
-      <HospitalAdminSidebar />
-      <main className="flex-1 p-6 sm:p-8 space-y-8 bg-slate-50/50 overflow-y-auto">
+    <div className="space-y-8">
         
         {/* Banner Illustration Header */}
         <div className="relative overflow-hidden bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-lg shadow-teal-900/10">
@@ -199,7 +196,6 @@ export const HospitalAdminDashboardPage: React.FC = () => {
             </span>
           </Link>
         </div>
-      </main>
     </div>
   );
 };

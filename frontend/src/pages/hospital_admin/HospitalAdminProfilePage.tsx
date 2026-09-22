@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
-import { HospitalAdminSidebar } from '../../components/HospitalAdminSidebar';
 import { Building, Save, CheckCircle2, Phone, Mail, MapPin } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
@@ -63,9 +62,7 @@ export const HospitalAdminProfilePage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]">
-      <HospitalAdminSidebar />
-      <main className="flex-1 p-6 sm:p-8 space-y-6 bg-slate-50/50 overflow-y-auto">
+    <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Hospital Profile & Settings</h1>
           <p className="text-xs text-slate-500">Update official contact details, address, and facility branding</p>
@@ -194,7 +191,6 @@ export const HospitalAdminProfilePage: React.FC = () => {
             </form>
           </div>
         )}
-      </main>
     </div>
   );
 };

@@ -22,6 +22,11 @@ class PrescriptionCreate(BaseModel):
     notes: Optional[str] = None
     items: List[PrescriptionItemCreate] = []
 
+class PrescriptionUpdate(BaseModel):
+    session_id: Optional[str] = None
+    notes: Optional[str] = None
+    items: Optional[List[PrescriptionItemCreate]] = None
+
 class PrescriptionResponse(BaseModel):
     id: str
     patient_id: str

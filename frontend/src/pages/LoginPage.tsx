@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { getRoleDashboard } from '../utils/roleUtils';
 import { HeartPulse, Mail, Lock, LogIn } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { login } = useAuth();
+  const { user, login, loading: authLoading } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -13,6 +14,20 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate(getRoleDashboard(user.role), { replace: true });
+    }
+  }, [user, authLoading, navigate]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center p-8 text-sm text-slate-500">
+        Checking session...
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,20 +37,11 @@ export const LoginPage: React.FC = () => {
     const result = await login(email, password);
     if (result.success) {
       showToast('Logged in successfully!', 'success');
-      // Fetch authenticated user from localStorage token or AuthContext role if available
       try {
         const payload = JSON.parse(atob(localStorage.getItem('hospital_auth_token')?.split('.')[1] || '{}'));
-        if (payload.role === 'admin' || payload.role === 'super_admin') {
-          navigate('/admin');
-        } else if (payload.role === 'hospital_admin') {
-          navigate('/hospital-admin');
-        } else if (payload.role === 'doctor') {
-          navigate('/doctor/dashboard');
-        } else {
-          navigate('/dashboard');
-        }
+        navigate(getRoleDashboard(payload.role), { replace: true });
       } catch {
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       }
     } else {
       setErrorMsg(result.message || 'Login failed');

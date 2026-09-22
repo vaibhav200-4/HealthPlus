@@ -180,7 +180,7 @@ export interface TimeSlot {
 export interface ChatMessage {
   id: string;
   user_id?: string;
-  channel: 'web' | 'telegram';
+  channel: 'web' | 'telegram' | 'voice';
   session_id: string;
   role: 'user' | 'assistant';
   message: string;

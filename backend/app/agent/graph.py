@@ -15,7 +15,8 @@ from app.agent.tools import (
     get_hospital_info,
     check_availability,
     book_appointment,
-    save_intake_note
+    save_intake_note,
+    get_patient_prescriptions
 )
 from app.services.patient_service import PatientService
 
@@ -31,7 +32,7 @@ logger = logging.getLogger("hospital_app.agent.graph")
 # tools list and 400s on any name it wasn't told about. Binding the full set
 # everywhere removes this whole class of provider-validation failure; which
 # tool actually gets used per stage is steered by the system prompt instead.
-ALL_TOOLS = [search_doctors, get_hospital_info, check_availability, book_appointment, save_intake_note]
+ALL_TOOLS = [search_doctors, get_hospital_info, check_availability, book_appointment, save_intake_note, get_patient_prescriptions]
 
 MAX_HISTORY_MESSAGES = 20  # trim before every LLM call so long threads don't dilute the current turn
 CLASSIFIER_FAILURE_COUNT = 0

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
 import { DoctorNavbar } from './DoctorNavbar';
 import { AdminNavbar } from './AdminNavbar';
+import { HospitalAdminNavbar } from './HospitalAdminNavbar';
 import { 
   HeartPulse, 
   Calendar, 
@@ -13,11 +14,12 @@ import {
   Menu, 
   X,
   Stethoscope,
-  MessageSquare
+  MessageSquare,
+  Pill
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
-  const { user, logout, isDoctor, isAdmin } = useAuth();
+  const { user, logout, isDoctor, isAdmin, isHospitalAdmin } = useAuth();
   const { setIsOpen } = useChat();
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,6 +32,10 @@ export const Navbar: React.FC = () => {
 
   if (isAdmin) {
     return <AdminNavbar />;
+  }
+
+  if (isHospitalAdmin) {
+    return <HospitalAdminNavbar />;
   }
 
   const isActive = (path: string) => location.pathname === path;
@@ -90,6 +96,15 @@ export const Navbar: React.FC = () => {
               >
                 <Calendar className="w-4 h-4" />
                 Appointments
+              </Link>
+              <Link
+                to="/my-prescriptions"
+                className={`px-3.5 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                  isActive('/my-prescriptions') ? 'bg-medical-50 text-medical-700 font-semibold' : 'hover:text-medical-600 hover:bg-slate-50'
+                }`}
+              >
+                <Pill className="w-4 h-4 text-tealmed-600" />
+                Prescriptions
               </Link>
             </>
           )}

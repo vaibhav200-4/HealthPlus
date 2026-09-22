@@ -238,3 +238,49 @@ async def save_intake_note(
         return {"success": True, "note_id": inserted.get("id")}
 
     return await run_in_threadpool(_save)
+
+
+@tool
+async def get_patient_prescriptions(
+    state: Annotated[AgentState, InjectedState]
+) -> Dict[str, Any]:
+    """Retrieve active e-prescriptions for the current patient, including prescribed
+    medication names, dosages, frequencies, durations, intake instructions, doctor advice,
+    and prescribing doctor names. Patient identity is derived automatically from context."""
+    user_id = state.get("user_id") or state.get("patient_id")
+
+    def _fetch():
+        if not user_id:
+            return {"success": False, "message": "No active patient session context."}
+
+        p_rec = PatientService.resolve_patient(user_id)
+        if not p_rec:
+            return {"success": True, "prescriptions": [], "message": "No patient profile found."}
+
+        patient_db_id = p_rec["id"]
+        prescriptions = SupabaseService.get_records("prescriptions", {"patient_id": patient_db_id})
+
+        results = []
+        for p in prescriptions:
+            items = SupabaseService.get_records("prescription_items", {"prescription_id": p["id"]})
+            doc_rec = SupabaseService.get_record_by_id("doctors", p.get("doctor_id"))
+            results.append({
+                "id": p["id"],
+                "doctor_name": doc_rec.get("name") if doc_rec else "Attending Doctor",
+                "notes": p.get("notes"),
+                "date": p.get("created_at"),
+                "medications": [
+                    {
+                        "medicine_name": i.get("medicine_name"),
+                        "dosage": i.get("dosage"),
+                        "frequency": i.get("frequency"),
+                        "duration": i.get("duration"),
+                        "instructions": i.get("instructions")
+                    }
+                    for i in items
+                ]
+            })
+
+        return {"success": True, "count": len(results), "prescriptions": results}
+
+    return await run_in_threadpool(_fetch)

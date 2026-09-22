@@ -11,6 +11,7 @@ interface ChatContextType {
   setIsOpen: (open: boolean) => void;
   sendMessage: (text: string) => Promise<void>;
   uploadFile: (file: File, customTitle?: string) => Promise<void>;
+  addVoiceMessage: (role: 'user' | 'assistant', text: string) => void;
   clearChat: () => void;
   sessionId: string;
 }
@@ -197,6 +198,19 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const addVoiceMessage = (role: 'user' | 'assistant', text: string) => {
+    if (!text.trim()) return;
+    const newMsg: ChatMessage = {
+      id: `voice_${Math.random().toString(36).substring(2, 9)}`,
+      channel: 'voice',
+      session_id: sessionId,
+      role,
+      message: text,
+      created_at: new Date().toISOString()
+    };
+    setMessages((prev) => [...prev, newMsg]);
+  };
+
   return (
     <ChatContext.Provider
       value={{
@@ -207,6 +221,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsOpen,
         sendMessage,
         uploadFile,
+        addVoiceMessage,
         clearChat,
         sessionId
       }}

@@ -59,18 +59,24 @@ class BookingService:
 
             def _norm_time(t: str) -> str:
                 t = (t or "").strip()
-                if t and not ("AM" in t.upper() or "PM" in t.upper()):
-                    try:
-                        parts = t.split(":")
-                        h = int(parts[0])
-                        m = parts[1] if len(parts) > 1 else "00"
-                        if h < 8 or h == 12:
-                            return f"{h:02d}:{m} PM"
-                        else:
-                            return f"{h:02d}:{m} AM"
-                    except Exception:
-                        pass
-                return t
+                if not t:
+                    return t
+                if "AM" in t.upper() or "PM" in t.upper():
+                    return t
+                try:
+                    parts = t.split(":")
+                    h = int(parts[0])
+                    m = parts[1] if len(parts) > 1 else "00"
+                    if h == 0:
+                        return f"12:{m} AM"
+                    elif h == 12:
+                        return f"12:{m} PM"
+                    elif h > 12:
+                        return f"{h - 12:02d}:{m} PM"
+                    else:
+                        return f"{h:02d}:{m} AM"
+                except Exception:
+                    return t
 
             norm_req_start = _norm_time(start_time)
             matching_slot = next((
@@ -88,13 +94,8 @@ class BookingService:
                 for s in available_slots
             )
 
-            if not slot_is_valid and len(available_slots) > 0:
-                has_conflict = any(
-                    (_norm_time(s["start_time"]) == norm_req_start or s["start_time"] == start_time) and not s["available"]
-                    for s in available_slots
-                )
-                if has_conflict:
-                    return False, "This slot is no longer available.", {}
+            if not slot_is_valid:
+                return False, "This slot is no longer available.", {}
 
             # 3. Create appointment record
             calendar_event_id = f"gcal_{uuid.uuid4().hex[:10]}"

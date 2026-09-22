@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
-import { HospitalAdminSidebar } from '../../components/HospitalAdminSidebar';
 import { Doctor } from '../../types';
 import { Clock, Plus, Trash2, Calendar, CheckCircle2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
@@ -95,9 +94,7 @@ export const HospitalAdminSchedulesPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]">
-      <HospitalAdminSidebar />
-      <main className="flex-1 p-6 sm:p-8 space-y-6 bg-slate-50/50 overflow-y-auto">
+    <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Doctor Work Schedules</h1>
@@ -265,7 +262,6 @@ export const HospitalAdminSchedulesPage: React.FC = () => {
             </div>
           </div>
         )}
-      </main>
     </div>
   );
 };

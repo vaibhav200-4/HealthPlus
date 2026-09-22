@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { getRoleDashboard } from '../utils/roleUtils';
 import { HeartPulse, Mail, Lock, User as UserIcon, Phone, UserPlus } from 'lucide-react';
 
 export const RegisterPage: React.FC = () => {
-  const { register } = useAuth();
+  const { user, register, loading: authLoading } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -16,6 +17,20 @@ export const RegisterPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate(getRoleDashboard(user.role), { replace: true });
+    }
+  }, [user, authLoading, navigate]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center p-8 text-sm text-slate-500">
+        Checking session...
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -24,7 +39,7 @@ export const RegisterPage: React.FC = () => {
     const result = await register(name, email, password, phone);
     if (result.success) {
       showToast('Account created successfully!', 'success');
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } else {
       setErrorMsg(result.message || 'Registration failed');
       showToast(result.message || 'Registration failed', 'error');

@@ -56,6 +56,8 @@ def get_supabase_client():
     ):
         try:
             from supabase import create_client
+            if not settings.SUPABASE_SERVICE_ROLE_KEY:
+                logger.warning("SUPABASE_SERVICE_ROLE_KEY not set. Falling back to anon key; RLS may block backend queries.")
             key = settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY
             _supabase_client = create_client(settings.SUPABASE_URL, key)
             logger.info("Successfully connected to Supabase.")

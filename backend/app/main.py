@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, hospital_admin, episodes, telegram_webhook, sessions, prescriptions, medical_records, reviews, location
+from app.api import auth, doctors, hospitals, departments, schedules, appointments, chat, admin, hospital_admin, episodes, telegram_webhook, sessions, prescriptions, medical_records, reviews, location, voice
 import uvicorn
 from app.database.supabase_client import SupabaseService, DatabaseError
 from app.agent.memory import setup_checkpointer
@@ -79,6 +79,7 @@ app.include_router(telegram_webhook.router)
 app.include_router(admin.router)
 app.include_router(hospital_admin.router)
 app.include_router(episodes.router)
+app.include_router(voice.router)
 
 @app.get("/health")
 def health_check():

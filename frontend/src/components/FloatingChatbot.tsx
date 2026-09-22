@@ -2,16 +2,61 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
-import { Bot, X, Send, Sparkles, User as UserIcon, Paperclip, Loader2, AlertCircle, FileText, ExternalLink, Lock, LogIn } from 'lucide-react';
+import { useFloatingUI } from '../context/FloatingUIContext';
+import { useVoiceAgent } from '../hooks/useVoiceAgent';
+import {
+  Bot,
+  X,
+  Send,
+  Sparkles,
+  User as UserIcon,
+  Paperclip,
+  Loader2,
+  AlertCircle,
+  FileText,
+  ExternalLink,
+  Lock,
+  LogIn,
+  Mic,
+  MicOff,
+  Volume2,
+  Radio,
+} from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 export const FloatingChatbot: React.FC = () => {
   const { user } = useAuth();
-  const { messages, loading, uploading, isOpen, setIsOpen, sendMessage, uploadFile } = useChat();
+  const {
+    messages,
+    loading,
+    uploading,
+    setIsOpen: setChatContextOpen,
+    sendMessage,
+    uploadFile,
+    addVoiceMessage,
+  } = useChat();
+  const { activeModal, openChat, closeAll } = useFloatingUI();
   const [input, setInput] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    state: voiceState,
+    errorMessage: voiceErrorMessage,
+    isSpeechSupported,
+    connectSession,
+    disconnectSession,
+  } = useVoiceAgent({
+    onUserMessage: (text) => {
+      addVoiceMessage('user', text);
+    },
+    onBotMessage: (text) => {
+      addVoiceMessage('assistant', text);
+    },
+  });
+
+  const isOpen = activeModal === 'chat';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -21,14 +66,26 @@ export const FloatingChatbot: React.FC = () => {
     if (isOpen) {
       scrollToBottom();
     }
-  }, [messages, loading, uploading, isOpen]);
+  }, [messages, loading, uploading, voiceState, isOpen]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !input.trim() || loading || uploading) return;
+    if (voiceState !== 'idle') {
+      disconnectSession();
+    }
     setUploadError(null);
     sendMessage(input);
     setInput('');
+  };
+
+  const handleMicClick = () => {
+    if (!user) return;
+    if (voiceState === 'idle') {
+      connectSession();
+    } else {
+      disconnectSession();
+    }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,10 +123,28 @@ export const FloatingChatbot: React.FC = () => {
     }
   };
 
+  const handleOpenChat = () => {
+    openChat();
+    setChatContextOpen(true);
+  };
+
+  const handleCloseChat = () => {
+    if (voiceState !== 'idle') {
+      disconnectSession();
+    }
+    closeAll();
+    setChatContextOpen(false);
+  };
+
+  const isAdminRole = user?.role === 'hospital_admin' || user?.role === 'admin' || user?.role === 'super_admin';
+
   if (!isOpen) {
+    if (isAdminRole) {
+      return null;
+    }
     return (
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={handleOpenChat}
         className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white rounded-full shadow-2xl hover:shadow-medical-500/40 hover:scale-105 transition-all duration-300 group"
       >
         <div className="relative">
@@ -147,32 +222,140 @@ export const FloatingChatbot: React.FC = () => {
     );
   };
 
+  const renderMicButton = () => {
+    if (!isSpeechSupported) {
+      return (
+        <button
+          type="button"
+          disabled
+          title="Speech recognition is not supported in this browser"
+          className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center opacity-50 cursor-not-allowed flex-shrink-0 border border-slate-200"
+        >
+          <MicOff className="w-4 h-4" />
+        </button>
+      );
+    }
+
+    if (voiceState === 'connecting') {
+      return (
+        <button
+          type="button"
+          onClick={handleMicClick}
+          title="Connecting voice assistant... Tap to cancel"
+          className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 border border-amber-300 flex items-center justify-center flex-shrink-0 transition-all shadow-sm"
+        >
+          <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+        </button>
+      );
+    }
+
+    if (voiceState === 'listening') {
+      return (
+        <button
+          type="button"
+          onClick={handleMicClick}
+          title="Listening to your voice... Tap to stop"
+          className="w-10 h-10 rounded-full bg-rose-600 text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-rose-500/30 animate-pulse transition-all"
+        >
+          <Mic className="w-4 h-4 text-white animate-pulse" />
+        </button>
+      );
+    }
+
+    if (voiceState === 'speaking') {
+      return (
+        <button
+          type="button"
+          onClick={handleMicClick}
+          title="Assistant is speaking... Tap to stop"
+          className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-purple-500/30 transition-all"
+        >
+          <Volume2 className="w-4 h-4 text-white animate-bounce" />
+        </button>
+      );
+    }
+
+    if (voiceState === 'error') {
+      return (
+        <button
+          type="button"
+          onClick={handleMicClick}
+          title={voiceErrorMessage || "Voice session error. Tap to retry"}
+          className="w-10 h-10 rounded-full bg-red-100 text-red-600 border border-red-300 flex items-center justify-center flex-shrink-0 transition-all"
+        >
+          <MicOff className="w-4 h-4 text-red-600" />
+        </button>
+      );
+    }
+
+    // Default Idle
+    return (
+      <button
+        type="button"
+        onClick={handleMicClick}
+        disabled={!user || loading || uploading}
+        title={!user ? "Please log in to use voice" : "Start Voice Assistant"}
+        className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0 border border-slate-200"
+      >
+        <Mic className="w-4 h-4 text-slate-600 hover:text-medical-600" />
+      </button>
+    );
+  };
+
   return (
     <div className="fixed bottom-4 right-4 z-50 w-[92vw] sm:w-[420px] h-[580px] max-h-[85vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5">
       {/* Chat Header */}
       <div className="p-4 bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-800 text-white flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
-            <Sparkles className="w-5 h-5 text-tealmed-300" />
+            {voiceState === 'speaking' ? (
+              <Volume2 className="w-5 h-5 text-tealmed-300 animate-bounce" />
+            ) : (
+              <Sparkles className="w-5 h-5 text-tealmed-300" />
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-sm">Hospital Health Assistant</h3>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-semibold border border-emerald-400/30">
-                Online
+                {voiceState !== 'idle' ? 'Voice Active' : 'Online'}
               </span>
             </div>
-            <p className="text-xs text-slate-300">Here to help with appointments, doctors, and medical uploads.</p>
+            <p className="text-xs text-slate-300">Here to help via text, document uploads, or voice.</p>
           </div>
         </div>
 
         <button
-          onClick={() => setIsOpen(false)}
+          onClick={handleCloseChat}
           className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Voice Status Sub-bar when Voice is Active */}
+      {voiceState !== 'idle' && (
+        <div className="py-2 px-4 bg-slate-900 text-white flex items-center justify-between text-xs border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <Radio className={`w-3.5 h-3.5 ${voiceState === 'listening' ? 'text-emerald-400 animate-pulse' : 'text-slate-400'}`} />
+            <span className="font-medium text-slate-300">
+              {voiceState === 'listening'
+                ? 'Listening for your voice...'
+                : voiceState === 'speaking'
+                ? 'Health Assistant is speaking...'
+                : voiceState === 'connecting'
+                ? 'Connecting voice session...'
+                : 'Voice mode error'}
+            </span>
+          </div>
+          <button
+            onClick={disconnectSession}
+            className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold underline ml-2"
+          >
+            End Voice
+          </button>
+        </div>
+      )}
 
       {/* Chat Messages / Logged-Out Prompt */}
       <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
@@ -189,7 +372,7 @@ export const FloatingChatbot: React.FC = () => {
             </p>
             <Link
               to="/login"
-              onClick={() => setIsOpen(false)}
+              onClick={handleCloseChat}
               className="w-full max-w-xs py-3 px-4 bg-gradient-to-r from-medical-600 to-tealmed-600 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-medical-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
             >
               <LogIn className="w-4 h-4" />
@@ -203,7 +386,7 @@ export const FloatingChatbot: React.FC = () => {
             </div>
             <h4 className="font-semibold text-slate-800 mb-1">Hello! I'm your Health Assistant</h4>
             <p className="text-xs text-slate-500 mb-4 max-w-xs">
-              Ask me about appointments, doctors, or upload your medical records via the attach icon below.
+              Ask me about appointments, doctors, or upload your medical records via paperclip or mic icon below.
             </p>
             <div className="grid grid-cols-1 gap-2 w-full text-xs">
               <button
@@ -299,6 +482,23 @@ export const FloatingChatbot: React.FC = () => {
         </div>
       )}
 
+      {/* Inline Voice Error Banner */}
+      {voiceErrorMessage && (
+        <div className="px-3 py-2 bg-red-50 border-t border-red-200 flex items-center justify-between text-xs text-red-700 font-medium">
+          <div className="flex items-center gap-1.5 truncate">
+            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+            <span className="truncate">{voiceErrorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => disconnectSession()}
+            className="p-1 text-red-500 hover:text-red-800 rounded-md"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Input Form */}
       <form onSubmit={handleSend} className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
         <input
@@ -324,11 +524,19 @@ export const FloatingChatbot: React.FC = () => {
           )}
         </button>
 
+        {renderMicButton()}
+
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={!user ? "Please log in to chat..." : "Ask AI or book appointment..."}
+          placeholder={
+            !user
+              ? "Please log in to chat..."
+              : voiceState === 'listening'
+              ? "Listening... or type message here"
+              : "Ask AI or book appointment..."
+          }
           className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:bg-white transition-all placeholder:text-slate-400 disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
           disabled={!user || loading || uploading}
         />

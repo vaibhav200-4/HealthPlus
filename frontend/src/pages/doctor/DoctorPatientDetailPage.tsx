@@ -20,7 +20,6 @@ import {
   FileUp,
   X,
   Building,
-  Heart,
   Sparkles,
   RefreshCw,
   Activity,
@@ -193,7 +192,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
   };
 
   const handleResolveEpisode = async (episodeId: string) => {
-    if (!window.confirm('Mark this clinical episode as resolved? A new active episode will be initiated on next patient intake/upload.')) {
+    if (!window.confirm('Mark this consultation as resolved? A new active consultation will be initiated on next patient intake/upload.')) {
       return;
     }
     setResolvingEpisode(true);
@@ -208,7 +207,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
       );
       if (targetIds.length > 0) fetchEpisodes(targetIds);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to resolve episode');
+      alert(err.response?.data?.detail || 'Failed to resolve consultation');
     } finally {
       setResolvingEpisode(false);
     }
@@ -220,7 +219,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
       await api.post(`/medical-records/${recordId}/retry-ocr`);
       await fetchPatientData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to queue OCR retry');
+      alert(err.response?.data?.detail || 'Failed to queue processing retry');
     } finally {
       setRetryingOcrId(null);
     }
@@ -292,26 +291,26 @@ export const DoctorPatientDetailPage: React.FC = () => {
         </button>
 
         {/* Patient Profile Hero Banner */}
-        <div className="bg-gradient-to-r from-tealmed-50 via-emerald-50/70 to-white rounded-3xl p-6 sm:p-8 border border-tealmed-100/90 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-tealmed-600 to-tealmed-500 text-white flex items-center justify-center font-extrabold text-2xl border border-tealmed-400 shadow-md">
+        <div className="bg-gradient-to-r from-tealmed-50 via-emerald-50/70 to-white rounded-3xl p-6 sm:p-8 border border-tealmed-100/90 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6 min-h-fit">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-tealmed-600 to-tealmed-500 text-white flex items-center justify-center font-extrabold text-2xl border border-tealmed-400 shadow-md shrink-0">
               {pName.charAt(0).toUpperCase()}
             </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">{pName}</h1>
-                <span className="px-3 py-0.5 rounded-full text-xs font-extrabold bg-tealmed-100 text-tealmed-900 border border-tealmed-200">
+            <div className="space-y-1 min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 break-words max-w-full">{pName}</h1>
+                <span className="px-3 py-0.5 rounded-full text-xs font-extrabold bg-tealmed-100 text-tealmed-900 border border-tealmed-200 shrink-0">
                   {pCode}
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-600">
-                <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-slate-400" /> {pEmail}</span>
-                <span className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-slate-400" /> {pPhone}</span>
+                <span className="flex items-center gap-1.5 min-w-0 truncate"><Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" /> <span className="truncate">{pEmail}</span></span>
+                <span className="flex items-center gap-1.5 min-w-0 truncate"><Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" /> <span className="truncate">{pPhone}</span></span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={() => {
                 setActiveTab('records');
@@ -336,7 +335,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
           }`}
         >
           <UserIcon className="w-4 h-4" />
-          Overview & Episodes ({activeEpisode ? 1 : 0} Active)
+          Overview & Consultations ({activeEpisode ? 1 : 0} Active)
         </button>
         <button
           onClick={() => setActiveTab('records')}
@@ -347,11 +346,11 @@ export const DoctorPatientDetailPage: React.FC = () => {
           }`}
         >
           <FileText className="w-4 h-4" />
-          Medical Records & OCR ({records.length})
+          Medical Records ({records.length})
         </button>
       </div>
 
-      {/* Tab 1: Overview & Episodes */}
+      {/* Tab 1: Overview & Consultations */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Quick Info Grid */}
@@ -362,13 +361,10 @@ export const DoctorPatientDetailPage: React.FC = () => {
             </div>
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
               <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Blood Group</span>
-              <p className="text-sm font-extrabold text-rose-600 flex items-center gap-1">
-                <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
-                {patientProfile?.blood_group || 'Not specified'}
-              </p>
+              <p className="text-sm font-extrabold text-slate-900">{patientProfile?.blood_group || 'Not specified'}</p>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-              <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Active Episode</span>
+              <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">Active Consultation</span>
               <p className="text-sm font-extrabold text-tealmed-800 flex items-center gap-1">
                 <Activity className="w-4 h-4 text-tealmed-600" />
                 {activeEpisode ? (activeEpisode.condition || 'General Care') : 'None'}
@@ -380,7 +376,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Headline Active Episode Summary Card */}
+          {/* Headline Current Consultation Summary Card */}
           <div className="bg-gradient-to-br from-teal-50/70 via-white to-emerald-50/50 rounded-3xl border border-tealmed-200/90 p-6 sm:p-8 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-tealmed-100/80 pb-4">
               <div className="flex items-center gap-3">
@@ -392,14 +388,14 @@ export const DoctorPatientDetailPage: React.FC = () => {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-extrabold text-slate-900">
-                      {activeEpisode ? `Active Episode: ${activeEpisode.condition || 'General Health Care'}` : 'No Active Episode'}
+                      {activeEpisode ? `Current Consultation: ${activeEpisode.condition || 'General Health Care'}` : 'No Active Consultation'}
                     </h3>
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
                       activeEpisode
                         ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
                         : 'bg-slate-100 text-slate-600 border-slate-200'
                     }`}>
-                      {activeEpisode ? 'Active Episode' : 'No Active Episode'}
+                      {activeEpisode ? 'Active Consultation' : 'No Active Consultation'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
@@ -409,7 +405,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
                         {activeEpisode.summary_generated_at ? ` • Summary updated ${new Date(activeEpisode.summary_generated_at).toLocaleTimeString()}` : ''}
                       </>
                     ) : (
-                      'No active clinical episode currently in progress for this patient.'
+                      'No active consultation currently in progress for this patient.'
                     )}
                   </p>
                 </div>
@@ -432,7 +428,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 bg-white hover:bg-rose-50 px-3.5 py-2 rounded-2xl border border-rose-200 shadow-2xs transition-all disabled:opacity-50"
                   >
                     <CheckSquare className="w-3.5 h-3.5 text-rose-600" />
-                    {resolvingEpisode ? 'Resolving...' : 'Mark Episode Resolved'}
+                    {resolvingEpisode ? 'Resolving...' : 'Mark Consultation Resolved'}
                   </button>
                 </div>
               )}
@@ -465,17 +461,17 @@ export const DoctorPatientDetailPage: React.FC = () => {
             ) : (
               <div className="p-6 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500">
                 {activeEpisode
-                  ? 'No OCR-extracted summary available yet for this episode. Upload medical documents or chat with AI assistant to synthesize an episode summary.'
-                  : 'No active clinical episode found for this patient profile. Initiate care by uploading medical records or logging a consultation.'}
+                  ? 'No summary available yet for this consultation. Upload medical documents or chat with AI assistant to synthesize a consultation summary.'
+                  : 'No active consultation found for this patient profile. Initiate care by uploading medical records or logging a consultation.'}
               </div>
             )}
           </div>
 
-          {/* Past Resolved Episodes Accordion */}
+          {/* Past Consultations Accordion */}
           {pastEpisodes.length > 0 && (
             <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-slate-500" /> Past Resolved Episodes ({pastEpisodes.length})
+                <Clock className="w-5 h-5 text-slate-500" /> Past Consultations ({pastEpisodes.length})
               </h3>
 
               <div className="space-y-3">
@@ -503,11 +499,11 @@ export const DoctorPatientDetailPage: React.FC = () => {
 
                       {isExpanded && (
                         <div className="p-5 bg-white border-t border-slate-100 text-xs space-y-2">
-                          <div className="font-semibold text-slate-700">Archived Episode Summary:</div>
+                          <div className="font-semibold text-slate-700">Archived Consultation Summary:</div>
                           {ep.summary ? (
                             <MarkdownRenderer content={ep.summary} />
                           ) : (
-                            <p className="text-slate-400 italic">No summary archived for this episode.</p>
+                            <p className="text-slate-400 italic">No summary archived for this consultation.</p>
                           )}
                         </div>
                       )}
@@ -559,16 +555,16 @@ export const DoctorPatientDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 2: Medical Records & OCR */}
+      {/* Tab 2: Medical Records */}
       {activeTab === 'records' && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs">
             <div>
               <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-emerald-600" /> Scoped Medical Records & OCR
+                <FileText className="w-5 h-5 text-emerald-600" /> Medical Records
               </h2>
               <p className="text-xs text-slate-500">
-                Medical reports, lab scans, and document OCR extractions for {pName}.
+                Medical reports, lab scans, and document extractions for {pName}.
               </p>
             </div>
             <button
@@ -602,20 +598,20 @@ export const DoctorPatientDetailPage: React.FC = () => {
                           {r.record_type ? r.record_type.replace('_', ' ') : 'Record'}
                         </span>
                         
-                        {/* OCR Status Badge */}
+                        {/* Status Badge */}
                         {ocrStatus === 'completed' && (
                           <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-full flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> OCR Ready
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Ready
                           </span>
                         )}
                         {ocrStatus === 'pending' && (
                           <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold rounded-full flex items-center gap-1">
-                            <RotateCw className="w-3 h-3 text-amber-600 animate-spin" /> Processing OCR
+                            <RotateCw className="w-3 h-3 text-amber-600 animate-spin" /> Processing
                           </span>
                         )}
                         {ocrStatus === 'failed' && (
                           <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold rounded-full flex items-center gap-1">
-                            <AlertCircle className="w-3 h-3 text-rose-600" /> OCR Failed
+                            <AlertCircle className="w-3 h-3 text-rose-600" /> Processing Failed
                           </span>
                         )}
                       </div>
@@ -625,10 +621,10 @@ export const DoctorPatientDetailPage: React.FC = () => {
                         {r.description && <p className="text-slate-600 text-xs mt-1 leading-relaxed">{r.description}</p>}
                       </div>
 
-                      {/* OCR Extracted Text Preview */}
+                      {/* Document Content Preview */}
                       {r.extracted_text && (
                         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 text-[11px] text-slate-600 max-h-24 overflow-y-auto space-y-1">
-                          <div className="font-bold text-slate-800 text-[10px] uppercase tracking-wider">Extracted OCR Text:</div>
+                          <div className="font-bold text-slate-800 text-[10px] uppercase tracking-wider">Document Content:</div>
                           <p className="whitespace-pre-wrap">{r.extracted_text}</p>
                         </div>
                       )}
@@ -649,7 +645,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
                           className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1 border border-rose-200 transition-colors"
                         >
                           <RefreshCw className={`w-3.5 h-3.5 text-rose-600 ${retryingOcrId === r.id ? 'animate-spin' : ''}`} />
-                          <span>{retryingOcrId === r.id ? 'Queuing Retry...' : 'Retry OCR Processing'}</span>
+                          <span>{retryingOcrId === r.id ? 'Queuing Retry...' : 'Retry Processing'}</span>
                         </button>
                       )}
 

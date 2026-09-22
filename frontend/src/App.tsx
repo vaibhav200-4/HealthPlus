@@ -1,13 +1,16 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ChatProvider } from './context/ChatContext';
+import { getRoleDashboard } from './utils/roleUtils';
 
 // Components
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { FloatingChatbot } from './components/FloatingChatbot';
+import { FloatingUIProvider } from './context/FloatingUIContext';
+import { HospitalAdminLayout } from './components/HospitalAdminLayout';
 
 // Pages
 import { LandingPage } from './pages/LandingPage';
@@ -18,6 +21,7 @@ import { DoctorsPage } from './pages/DoctorsPage';
 import { MyAppointmentsPage } from './pages/MyAppointmentsPage';
 import { ChatHistoryPage } from './pages/ChatHistoryPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { MyPrescriptionsPage } from './pages/MyPrescriptionsPage';
 
 // Doctor Pages
 import { DoctorDashboardPage } from './pages/doctor/DoctorDashboardPage';
@@ -57,46 +61,82 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const PatientRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isPatient, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
-  if (!user || !isPatient) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isPatient) return <Navigate to={getRoleDashboard(user.role)} replace />;
   return <>{children}</>;
 };
 
 const DoctorRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isDoctor, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
-  if (!user || !isDoctor) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isDoctor) return <Navigate to={getRoleDashboard(user.role)} replace />;
   return <>{children}</>;
 };
 
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAdmin, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
-  if (!user || !isAdmin) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isAdmin) return <Navigate to={getRoleDashboard(user.role)} replace />;
   return <>{children}</>;
 };
 
 const HospitalAdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isHospitalAdmin, isAdmin, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
-  if (!user || (!isHospitalAdmin && !isAdmin)) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isHospitalAdmin && !isAdmin) return <Navigate to={getRoleDashboard(user.role)} replace />;
+  return <>{children}</>;
+};
+
+const RoleAwarePublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center text-sm text-slate-500">Loading session...</div>;
+  if (user && (user.role === 'hospital_admin' || user.role === 'admin' || user.role === 'super_admin' || user.role === 'doctor')) {
+    return <Navigate to={getRoleDashboard(user.role)} replace />;
+  }
   return <>{children}</>;
 };
 
 export const AppContent: React.FC = () => {
+  const location = useLocation();
+  const isHospitalAdminPath = location.pathname.startsWith('/hospital-admin');
+
+  if (isHospitalAdminPath) {
+    return (
+      <HospitalAdminRoute>
+        <HospitalAdminLayout>
+          <Routes>
+            <Route path="/hospital-admin" element={<HospitalAdminDashboardPage />} />
+            <Route path="/hospital-admin/doctors" element={<HospitalAdminDoctorsPage />} />
+            <Route path="/hospital-admin/departments" element={<HospitalAdminDepartmentsPage />} />
+            <Route path="/hospital-admin/schedules" element={<HospitalAdminSchedulesPage />} />
+            <Route path="/hospital-admin/appointments" element={<HospitalAdminAppointmentsPage />} />
+            <Route path="/hospital-admin/profile" element={<HospitalAdminProfilePage />} />
+            <Route path="*" element={<Navigate to="/hospital-admin" replace />} />
+          </Routes>
+        </HospitalAdminLayout>
+        <FloatingChatbot />
+      </HospitalAdminRoute>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col justify-between bg-slate-50">
       <Navbar />
       <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex-1">
         <Routes>
           {/* Public Routes */}
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/doctors" element={<DoctorsPage />} />
+          <Route path="/" element={<RoleAwarePublicRoute><LandingPage /></RoleAwarePublicRoute>} />
+          <Route path="/doctors" element={<RoleAwarePublicRoute><DoctorsPage /></RoleAwarePublicRoute>} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
 
           {/* Patient Protected Routes */}
           <Route path="/dashboard" element={<PatientRoute><DashboardPage /></PatientRoute>} />
           <Route path="/my-appointments" element={<PatientRoute><MyAppointmentsPage /></PatientRoute>} />
+          <Route path="/my-prescriptions" element={<PatientRoute><MyPrescriptionsPage /></PatientRoute>} />
           <Route path="/chat-history" element={<PatientRoute><ChatHistoryPage /></PatientRoute>} />
           <Route path="/profile" element={<PatientRoute><ProfilePage /></PatientRoute>} />
 
@@ -121,14 +161,6 @@ export const AppContent: React.FC = () => {
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
           <Route path="/admin/chats" element={<AdminRoute><AdminChatPage /></AdminRoute>} />
 
-          {/* Hospital Admin Protected Routes */}
-          <Route path="/hospital-admin" element={<HospitalAdminRoute><HospitalAdminDashboardPage /></HospitalAdminRoute>} />
-          <Route path="/hospital-admin/doctors" element={<HospitalAdminRoute><HospitalAdminDoctorsPage /></HospitalAdminRoute>} />
-          <Route path="/hospital-admin/departments" element={<HospitalAdminRoute><HospitalAdminDepartmentsPage /></HospitalAdminRoute>} />
-          <Route path="/hospital-admin/schedules" element={<HospitalAdminRoute><HospitalAdminSchedulesPage /></HospitalAdminRoute>} />
-          <Route path="/hospital-admin/appointments" element={<HospitalAdminRoute><HospitalAdminAppointmentsPage /></HospitalAdminRoute>} />
-          <Route path="/hospital-admin/profile" element={<HospitalAdminRoute><HospitalAdminProfilePage /></HospitalAdminRoute>} />
-
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -145,7 +177,9 @@ export const App: React.FC = () => {
       <AuthProvider>
         <ToastProvider>
           <ChatProvider>
-            <AppContent />
+            <FloatingUIProvider>
+              <AppContent />
+            </FloatingUIProvider>
           </ChatProvider>
         </ToastProvider>
       </AuthProvider>

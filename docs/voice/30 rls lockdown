@@ -1,0 +1,92 @@
+-- RLS LOCKDOWN. Separate from the voice migration. READ THE CHECKLIST FIRST.
+--
+-- Why: diagnostics #2 showed Row Level Security DISABLED on 23 public tables, including patients,
+-- medical_records, prescriptions, sessions, episodes and audit_logs. With RLS off, anyone holding your
+-- project's anon key (it ships inside any supabase-js frontend) can read AND write those tables through the
+-- Supabase REST API, unless the Data API or table grants were restricted separately.
+--
+-- CHECKLIST (all must be true before you run this):
+--   [ ] SUPABASE_SERVICE_ROLE_KEY is set for the backend, both in local .env AND in your hosting env vars.
+--       supabase_client.py silently falls back to the anon key when it is missing, and RLS would then block
+--       the backend completely.
+--   [ ] The frontend does not query these tables directly. Search frontend/src for:  .from('   and   .from("
+--       If it reads one of the tables in Section 1 directly, move that table to Section 2 (with a policy) or
+--       route the read through the backend.
+--   [ ] n8n and LangGraph reach the database through a direct Postgres connection or the service-role key,
+--       not the anon key.
+--   [ ] You have read the ROLLBACK block at the bottom.
+--
+-- How it works: RLS enabled with NO policy denies anon/authenticated access entirely. The service_role key
+-- and the postgres role bypass RLS, so the backend keeps working.
+--
+-- Not touched: spatial_ref_sys (owned by the PostGIS extension).
+
+begin;
+
+-- Section 1: sensitive tables. RLS on, no policies (backend only).
+alter table public.patients              enable row level security;
+alter table public.medical_records       enable row level security;
+alter table public.prescriptions         enable row level security;
+alter table public.prescription_items    enable row level security;
+alter table public.sessions              enable row level security;
+alter table public.episodes              enable row level security;
+alter table public.audit_logs            enable row level security;
+alter table public.patient_summaries     enable row level security;
+alter table public.patient_intake_notes  enable row level security;
+alter table public.chat_sessions         enable row level security;
+alter table public.notifications         enable row level security;
+alter table public.telegram_accounts     enable row level security;
+alter table public.hospital_members      enable row level security;
+alter table public.doctor_reviews        enable row level security;
+
+-- Section 2: non-sensitive scheduling/reference tables. RLS on, public READ only (writes denied).
+alter table public.departments        enable row level security;
+alter table public.hospital_holidays  enable row level security;
+alter table public.doctor_leaves      enable row level security;
+alter table public.blocked_slots      enable row level security;
+
+drop policy if exists "Departments are publicly viewable" on public.departments;
+create policy "Departments are publicly viewable" on public.departments for select using (true);
+
+drop policy if exists "Hospital holidays are publicly viewable" on public.hospital_holidays;
+create policy "Hospital holidays are publicly viewable" on public.hospital_holidays for select using (true);
+
+drop policy if exists "Doctor leaves are publicly viewable" on public.doctor_leaves;
+create policy "Doctor leaves are publicly viewable" on public.doctor_leaves for select using (true);
+
+drop policy if exists "Blocked slots are publicly viewable" on public.blocked_slots;
+create policy "Blocked slots are publicly viewable" on public.blocked_slots for select using (true);
+
+-- Section 3: automation tables (n8n memory, LangGraph checkpoints). RLS on, no policies.
+alter table public.n8n_chat_histories   enable row level security;
+alter table public.checkpoint_blobs     enable row level security;
+alter table public.checkpoint_migrations enable row level security;
+alter table public.checkpoint_writes    enable row level security;
+alter table public.checkpoints          enable row level security;
+
+commit;
+
+-- ROLLBACK (run only if something broke after applying; re-opens the tables):
+-- alter table public.patients              disable row level security;
+-- alter table public.medical_records       disable row level security;
+-- alter table public.prescriptions         disable row level security;
+-- alter table public.prescription_items    disable row level security;
+-- alter table public.sessions              disable row level security;
+-- alter table public.episodes              disable row level security;
+-- alter table public.audit_logs            disable row level security;
+-- alter table public.patient_summaries     disable row level security;
+-- alter table public.patient_intake_notes  disable row level security;
+-- alter table public.chat_sessions         disable row level security;
+-- alter table public.notifications         disable row level security;
+-- alter table public.telegram_accounts     disable row level security;
+-- alter table public.hospital_members      disable row level security;
+-- alter table public.doctor_reviews        disable row level security;
+-- alter table public.departments           disable row level security;
+-- alter table public.hospital_holidays     disable row level security;
+-- alter table public.doctor_leaves         disable row level security;
+-- alter table public.blocked_slots         disable row level security;
+-- alter table public.n8n_chat_histories    disable row level security;
+-- alter table public.checkpoint_blobs      disable row level security;
+-- alter table public.checkpoint_migrations disable row level security;
+-- alter table public.checkpoint_writes     disable row level security;
+-- alter table public.checkpoints           disable row level security;
