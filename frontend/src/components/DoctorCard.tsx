@@ -1,7 +1,7 @@
 import React from 'react';
 import { Doctor } from '../types';
 import { getDoctorImage } from '../utils/doctorImages';
-import { Stethoscope, Calendar, Clock, Star, MapPin, IndianRupee, Navigation, Phone, ExternalLink } from 'lucide-react';
+import { Stethoscope, Calendar, Clock, Star, MapPin, IndianRupee, Navigation, Phone } from 'lucide-react';
 
 interface DoctorCardProps {
   doctor: Doctor;
@@ -18,6 +18,18 @@ export const DoctorCard: React.FC<DoctorCardProps> = ({
 }) => {
   const imageUrl = getDoctorImage(doctor);
   const isExternal = doctor.source === 'external';
+
+  // Format specialties array or string (at most 2 + "+N more")
+  const formatSpecialtyBadge = (rawSpecialty: string) => {
+    if (!rawSpecialty) return 'General Practice';
+    const parts = rawSpecialty.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length <= 2) {
+      return parts.join(', ');
+    }
+    return `${parts.slice(0, 2).join(', ')} +${parts.length - 2} more`;
+  };
+
+  const specialtyBadgeText = formatSpecialtyBadge(doctor.specialization);
 
   // Format distance
   const formatDistance = (meters?: number) => {
@@ -46,18 +58,19 @@ export const DoctorCard: React.FC<DoctorCardProps> = ({
             alt={doctor.name}
             className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = imageUrl;
+              e.currentTarget.onerror = null; // Prevent infinite error retry loop
+              e.currentTarget.src = 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=500&auto=format&fit=crop&q=80';
             }}
           />
 
-          {/* Specialty Badge */}
-          <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold text-medical-700 shadow-sm border border-white">
-            {doctor.specialization}
+          {/* Specialty Badge (Truncated max 2 specialties + overflow count) */}
+          <div className="absolute top-3 right-3 max-w-[55%] bg-white/95 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold text-medical-700 shadow-sm border border-white truncate">
+            {specialtyBadgeText}
           </div>
 
           {/* External or Bookable Badge */}
           {isExternal ? (
-            <div className="absolute top-3 left-3 bg-amber-500/95 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-bold text-white shadow-sm flex items-center gap-1">
+            <div className="absolute top-3 left-3 bg-amber-500/95 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-bold text-white shadow-sm flex items-center gap-1 z-10">
               <span>External Clinic</span>
             </div>
           ) : (

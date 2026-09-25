@@ -41,7 +41,7 @@ export const LoginPage: React.FC = () => {
         const payload = JSON.parse(atob(localStorage.getItem('hospital_auth_token')?.split('.')[1] || '{}'));
         navigate(getRoleDashboard(payload.role), { replace: true });
       } catch {
-        navigate('/dashboard', { replace: true });
+        navigate('/', { replace: true });
       }
     } else {
       setErrorMsg(result.message || 'Login failed');

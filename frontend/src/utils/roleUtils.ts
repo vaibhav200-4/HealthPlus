@@ -9,8 +9,9 @@ export const getRoleDashboard = (role?: string): string => {
       return '/doctor/dashboard';
     case 'user':
     case 'patient':
-      return '/dashboard';
+      return '/';
     default:
       return '/login';
   }
 };
+

@@ -185,7 +185,7 @@ export const DoctorPatientDetailPage: React.FC = () => {
         });
       }
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to refresh episode summary');
+      alert(err.response?.data?.detail || 'Failed to refresh consultation summary');
     } finally {
       setRefreshingSummary(false);
     }

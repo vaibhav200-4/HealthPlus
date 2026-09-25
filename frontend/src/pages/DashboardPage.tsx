@@ -6,20 +6,19 @@ import api from '../services/api';
 import { Appointment, Doctor } from '../types';
 import { AppointmentModal } from '../components/AppointmentModal';
 import { DoctorCard } from '../components/DoctorCard';
-import { PractoSearchBar } from '../components/PractoSearchBar';
+import { DoctorSearchBar } from '../components/DoctorSearchBar';
 import { SkeletonDoctorCard } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
+import { useDoctorSearch } from '../hooks/useDoctorSearch';
 import { 
   Calendar, 
   Clock, 
   Bot, 
   Stethoscope, 
-  Search, 
   User as UserIcon, 
   ArrowRight,
   Sparkles,
-  MapPin,
-  Globe
+  MapPin
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
@@ -27,49 +26,38 @@ export const DashboardPage: React.FC = () => {
   const { setIsOpen } = useChat();
   const navigate = useNavigate();
 
+  const {
+    doctors: featuredDoctors,
+    loading: doctorsLoading,
+    error: searchError,
+    searchNearby,
+    activeLocationName
+  } = useDoctorSearch();
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [featuredDoctors, setFeaturedDoctors] = useState<Doctor[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loadingApps, setLoadingApps] = useState<boolean>(true);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [modalOpen, setModalOpen] = useState<boolean>(false);
 
-  const [dashboardLocationName, setDashboardLocationName] = useState<string>('Indore, MP');
-
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    fetchAppointments();
+    // Initial registered-only nearby doctors search for dashboard
+    searchNearby({ lat: 22.7533, lng: 75.8937, locationName: 'Indore, MP', specialty: '', registeredOnly: true });
+  }, [searchNearby]);
 
-  const fetchDashboardData = async () => {
+  const fetchAppointments = async () => {
     try {
-      const [appRes, nearbyRes] = await Promise.all([
-        api.get('/appointments/my'),
-        api.get('/doctors/nearby?lat=22.7533&lng=75.8937&radius_m=10000')
-      ]);
+      const appRes = await api.get('/appointments/my');
       setAppointments(appRes.data || []);
-      const results = nearbyRes.data?.results || [];
-      setFeaturedDoctors(results.slice(0, 3));
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      console.error('Failed to load appointments:', err);
     } finally {
-      setLoading(false);
+      setLoadingApps(false);
     }
   };
 
-  const handleDashboardNearbySearch = async (params: { lat: number; lng: number; locationName: string; specialty: string }) => {
-    setLoading(true);
-    setDashboardLocationName(params.locationName);
-    try {
-      let url = `/doctors/nearby?lat=${params.lat}&lng=${params.lng}&radius_m=10000`;
-      if (params.specialty) {
-        url += `&specialty=${encodeURIComponent(params.specialty)}`;
-      }
-      const res = await api.get(url);
-      setFeaturedDoctors((res.data?.results || []).slice(0, 6));
-    } catch (err) {
-      console.error('Dashboard nearby search error:', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleDashboardNearbySearch = (params: { lat: number; lng: number; locationName: string; specialty: string }) => {
+    searchNearby({ ...params, registeredOnly: true });
   };
 
   const upcomingAppointment = appointments.find(
@@ -109,12 +97,12 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Practo Search Bar */}
+        {/* Doctor Search Bar */}
         <div className="pt-2 border-t border-white/10">
           <p className="text-xs text-tealmed-300 font-semibold mb-2 flex items-center gap-1.5">
-            <MapPin className="w-4 h-4" /> Practo-Style Nearby Doctor & Specialty Search:
+            <MapPin className="w-4 h-4" /> Find doctors near you:
           </p>
-          <PractoSearchBar onSearch={handleDashboardNearbySearch} />
+          <DoctorSearchBar onSearch={handleDashboardNearbySearch} />
         </div>
       </div>
 
@@ -134,7 +122,9 @@ export const DashboardPage: React.FC = () => {
             )}
           </div>
 
-          {upcomingAppointment ? (
+          {loadingApps ? (
+            <div className="p-8 text-center text-xs text-slate-400">Loading appointments...</div>
+          ) : upcomingAppointment ? (
             <div className="p-5 bg-medical-50/60 rounded-2xl border border-medical-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="space-y-1.5">
                 <span className="text-[11px] font-bold text-medical-700 uppercase tracking-wider">
@@ -199,30 +189,30 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Recommended Nearby Doctors */}
+      {/* Registered Doctors on HealthPulse */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <MapPin className="w-5 h-5 text-medical-600" />
-            Nearby Doctors & Clinics ({dashboardLocationName})
+            Doctors on HealthPulse ({activeLocationName})
           </h2>
           <Link to="/doctors" className="text-xs font-bold text-medical-600 hover:underline flex items-center gap-1">
             View All Directory <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
 
-        {loading ? (
+        {doctorsLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map((i) => <SkeletonDoctorCard key={i} />)}
           </div>
         ) : featuredDoctors.length === 0 ? (
           <EmptyState
-            title="No nearby doctors found"
-            description="Try expanding your search radius or selecting a different location."
+            title="No doctors found"
+            description="No registered HealthPulse doctors were found for your selection."
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {featuredDoctors.map((doc) => (
+            {featuredDoctors.slice(0, 6).map((doc) => (
               <DoctorCard
                 key={doc.id}
                 doctor={doc}
@@ -233,21 +223,6 @@ export const DashboardPage: React.FC = () => {
                 }}
               />
             ))}
-          </div>
-        )}
-
-        {featuredDoctors.some((d) => d.source === 'external') && (
-          <div className="pt-4 border-t border-slate-200 text-center text-xs text-slate-500 flex items-center justify-center gap-1.5">
-            <Globe className="w-4 h-4 text-slate-400" />
-            <span>External clinic data provided by</span>
-            <a
-              href="https://www.openstreetmap.org/copyright"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-bold text-medical-600 hover:underline"
-            >
-              © OpenStreetMap contributors
-            </a>
           </div>
         )}
       </div>

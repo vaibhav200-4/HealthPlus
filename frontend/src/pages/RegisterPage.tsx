@@ -39,7 +39,7 @@ export const RegisterPage: React.FC = () => {
     const result = await register(name, email, password, phone);
     if (result.success) {
       showToast('Account created successfully!', 'success');
-      navigate('/dashboard', { replace: true });
+      navigate('/', { replace: true });
     } else {
       setErrorMsg(result.message || 'Registration failed');
       showToast(result.message || 'Registration failed', 'error');

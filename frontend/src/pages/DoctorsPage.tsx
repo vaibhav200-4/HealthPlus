@@ -1,150 +1,80 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import api from '../services/api';
 import { Doctor } from '../types';
 import { DoctorCard } from '../components/DoctorCard';
-import { PractoSearchBar } from '../components/PractoSearchBar';
+import { DoctorSearchBar } from '../components/DoctorSearchBar';
 import { AppointmentModal } from '../components/AppointmentModal';
 import { SkeletonDoctorCard } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
-import { getDoctorImage } from '../utils/doctorImages';
-import { Search, Sparkles, RefreshCw, Stethoscope, MapPin, Globe } from 'lucide-react';
+import { useDoctorSearch } from '../hooks/useDoctorSearch';
+import { Search, Sparkles, RefreshCw, Stethoscope, MapPin, Globe, AlertTriangle } from 'lucide-react';
 
 export const DoctorsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || '';
   const initialSpec = searchParams.get('specialization') || '';
 
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [search, setSearch] = useState<string>(initialSearch);
+  const {
+    doctors,
+    loading,
+    error,
+    searchMode,
+    activeLocationName,
+    activeSpecialty,
+    searchNearby,
+    searchStandard,
+    searchVector,
+    clearError
+  } = useDoctorSearch();
+
+  const [searchQuery, setSearchQuery] = useState<string>(initialSearch);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [modalOpen, setModalOpen] = useState<boolean>(false);
 
-  const [searchMode, setSearchMode] = useState<'standard' | 'nearby' | 'vector'>('nearby');
-  const [activeLocationName, setActiveLocationName] = useState<string>('Indore, MP');
-  const [activeSpecialty, setActiveSpecialty] = useState<string>(initialSpec);
-
   useEffect(() => {
-    // Default initial search around Indore coordinates
-    fetchNearbyDoctors({
+    // Initial search on mount
+    searchNearby({
       lat: 22.7533,
       lng: 75.8937,
       locationName: 'Indore, MP',
       specialty: initialSpec
     });
-  }, []);
+  }, [initialSpec, searchNearby]);
 
-  const fetchNearbyDoctors = async (params: { lat: number; lng: number; locationName: string; specialty: string }) => {
-    setLoading(true);
-    setSearchMode('nearby');
-    setActiveLocationName(params.locationName);
-    setActiveSpecialty(params.specialty);
-
-    try {
-      let url = `/doctors/nearby?lat=${params.lat}&lng=${params.lng}&radius_m=10000`;
-      if (params.specialty) {
-        url += `&specialty=${encodeURIComponent(params.specialty)}`;
-      }
-
-      const res = await api.get(url);
-      const rawResults = res.data?.results || [];
-
-      const mappedDoctors: Doctor[] = rawResults.map((d: any) => ({
-        ...d,
-        image_url: d.image_url || getDoctorImage({ id: d.id, name: d.name })
-      }));
-
-      setDoctors(mappedDoctors);
-    } catch (err) {
-      console.error('Failed to fetch nearby doctors:', err);
-      // Fallback to standard doctor list on error
-      fetchStandardDoctors(params.specialty);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchStandardDoctors = async (specialization?: string) => {
-    setLoading(true);
-    setSearchMode('standard');
-    try {
-      let url = '/doctors';
-      if (specialization) url += `?specialization=${encodeURIComponent(specialization)}`;
-      const res = await api.get(url);
-      setDoctors(res.data || []);
-    } catch (err) {
-      console.error('Failed to fetch doctors:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVectorSearch = async (e: React.FormEvent) => {
+  const handleVectorSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!search.trim()) {
-      fetchStandardDoctors();
-      return;
-    }
-
-    setLoading(true);
-    setSearchMode('vector');
-    try {
-      const res = await api.post('/doctors/search', { query: search, limit: 12 });
-      const results = res.data.results || [];
-      const mappedDoctors: Doctor[] = results.map((r: any) => ({
-        id: r.doctor_id || r.id,
-        hospital_id: r.hospital_id,
-        name: r.doctor_name || r.name,
-        degree: r.degree,
-        specialization: r.specialization,
-        experience_years: r.experience_years || 5,
-        designation: r.designation,
-        languages: ['English', 'Hindi'],
-        consultation_fee: r.consultation_fee || 500,
-        availability: r.availability,
-        image_url: getDoctorImage({ id: r.doctor_id || r.id, name: r.doctor_name || r.name }),
-        source: 'registered',
-        bookable: true
-      }));
-      setDoctors(mappedDoctors);
-    } catch (err) {
-      console.error('Doctor vector search failed:', err);
-      fetchStandardDoctors();
-    } finally {
-      setLoading(false);
-    }
+    searchVector(searchQuery);
   };
 
   return (
     <div className="space-y-8 pb-16">
-      {/* Header Section with Practo-Style Dual Search Bar */}
+      {/* Header Section with Dual Search Bar */}
       <div className="bg-gradient-to-r from-medical-900 via-medical-800 to-tealmed-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl space-y-6">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 text-xs font-semibold text-tealmed-300 border border-white/20">
-          <Stethoscope className="w-4 h-4" /> Practo-Style Nearby Doctor Search
+          <Stethoscope className="w-4 h-4" /> Find a Doctor
         </div>
 
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Find Nearby Specialist Doctors</h1>
           <p className="text-xs sm:text-sm text-slate-300 max-w-2xl mt-1 leading-relaxed">
-            Set your location and select a medical specialty to find bookable clinic doctors and external facilities near you.
+            Set your location and select a medical specialty to find bookable clinic doctors and healthcare facilities near you.
           </p>
         </div>
 
-        {/* Practo Dual Search Bar */}
-        <PractoSearchBar
-          onSearch={fetchNearbyDoctors}
+        {/* Dual Search Bar */}
+        <DoctorSearchBar
+          onSearch={searchNearby}
           initialSpecialty={initialSpec}
         />
 
         {/* Secondary AI Vector Text Search */}
-        <form onSubmit={handleVectorSearch} className="flex items-center gap-2 pt-2 border-t border-white/10 max-w-2xl">
+        <form onSubmit={handleVectorSearchSubmit} className="flex items-center gap-2 pt-2 border-t border-white/10 max-w-2xl">
           <span className="text-xs text-slate-300 font-semibold flex-shrink-0">Or search symptoms/names:</span>
           <div className="relative flex-1">
             <input
               type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="e.g. Cardiologist with 10+ years experience..."
               className="w-full pl-9 pr-3 py-1.5 bg-white/10 hover:bg-white/15 text-white rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-tealmed-400 placeholder:text-slate-400 border border-white/10"
             />
@@ -158,6 +88,22 @@ export const DoctorsPage: React.FC = () => {
           </button>
         </form>
       </div>
+
+      {/* Error Alert Banner */}
+      {error && (
+        <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 text-xs font-medium text-amber-900 flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={clearError}
+            className="text-amber-700 hover:text-amber-900 font-bold ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Results Header */}
       <div className="flex items-center justify-between">
@@ -180,7 +126,7 @@ export const DoctorsPage: React.FC = () => {
 
         {searchMode !== 'standard' && (
           <button
-            onClick={() => fetchStandardDoctors()}
+            onClick={() => searchStandard()}
             className="text-xs text-medical-600 font-semibold flex items-center gap-1 hover:underline"
           >
             <RefreshCw className="w-3.5 h-3.5" /> View All Registered Doctors
@@ -200,8 +146,8 @@ export const DoctorsPage: React.FC = () => {
           action={
             <button
               onClick={() => {
-                setSearch('');
-                fetchNearbyDoctors({ lat: 22.7533, lng: 75.8937, locationName: 'Indore, MP', specialty: '' });
+                setSearchQuery('');
+                searchNearby({ lat: 22.7533, lng: 75.8937, locationName: 'Indore, MP', specialty: '' });
               }}
               className="px-4 py-2 bg-medical-600 text-white font-semibold text-xs rounded-xl shadow"
             >

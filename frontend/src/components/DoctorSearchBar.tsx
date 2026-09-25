@@ -8,13 +8,13 @@ export interface LocationOption {
   lng: number;
 }
 
-interface PractoSearchBarProps {
+interface DoctorSearchBarProps {
   onSearch: (params: { lat: number; lng: number; locationName: string; specialty: string }) => void;
   initialSpecialty?: string;
   className?: string;
 }
 
-export const PractoSearchBar: React.FC<PractoSearchBarProps> = ({
+export const DoctorSearchBar: React.FC<DoctorSearchBarProps> = ({
   onSearch,
   initialSpecialty = '',
   className = ''
@@ -38,11 +38,20 @@ export const PractoSearchBar: React.FC<PractoSearchBarProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const geocodeAbortRef = useRef<AbortController | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch specialties on mount
   useEffect(() => {
     fetchSpecialties();
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      if (geocodeAbortRef.current) {
+        geocodeAbortRef.current.abort();
+      }
+    };
   }, []);
 
   // Handle outside click to close location dropdown
@@ -68,7 +77,7 @@ export const PractoSearchBar: React.FC<PractoSearchBarProps> = ({
     }
   };
 
-  // Debounced location geocoding (450ms)
+  // Debounced location geocoding (700ms) with AbortController
   const handleLocationInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setLocationQuery(val);
@@ -79,62 +88,45 @@ export const PractoSearchBar: React.FC<PractoSearchBarProps> = ({
       clearTimeout(debounceTimerRef.current);
     }
 
+    if (geocodeAbortRef.current) {
+      geocodeAbortRef.current.abort();
+    }
+
     if (!val || val.trim().length < 3) {
       setSuggestions([]);
       setShowDropdown(false);
+      setIsGeocoding(false);
       return;
     }
 
     setIsGeocoding(true);
     debounceTimerRef.current = setTimeout(async () => {
+      geocodeAbortRef.current = new AbortController();
+      const signal = geocodeAbortRef.current.signal;
+
       try {
-        const res = await api.get(`/location/geocode?q=${encodeURIComponent(val)}`);
+        const res = await api.get(`/location/geocode?q=${encodeURIComponent(val.trim())}`, { signal });
         const results = res.data?.results || [];
         if (results.length > 0) {
           setSuggestions(results);
           setShowDropdown(true);
         } else {
-          // Direct client fallback to OpenStreetMap Nominatim API if backend endpoint returns empty
-          const fallbackRes = await fetch(
-            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&limit=5`,
-            { headers: { 'Accept': 'application/json' } }
-          );
-          if (fallbackRes.ok) {
-            const raw = await fallbackRes.json();
-            const mapped = raw.map((item: any) => ({
-              display_name: item.display_name,
-              lat: parseFloat(item.lat),
-              lng: parseFloat(item.lon)
-            }));
-            setSuggestions(mapped);
-            setShowDropdown(mapped.length > 0);
-          }
-        }
-      } catch (err) {
-        console.warn('Geocode search backend failed, trying direct OSM Nominatim fallback:', err);
-        try {
-          const fallbackRes = await fetch(
-            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&limit=5`,
-            { headers: { 'Accept': 'application/json' } }
-          );
-          if (fallbackRes.ok) {
-            const raw = await fallbackRes.json();
-            const mapped = raw.map((item: any) => ({
-              display_name: item.display_name,
-              lat: parseFloat(item.lat),
-              lng: parseFloat(item.lon)
-            }));
-            setSuggestions(mapped);
-            setShowDropdown(mapped.length > 0);
-          }
-        } catch (fallbackErr) {
-          console.error('Direct OSM fallback also failed:', fallbackErr);
           setSuggestions([]);
+          setShowDropdown(false);
         }
+      } catch (err: any) {
+        if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED' || err?.name === 'AbortError') {
+          return;
+        }
+        console.warn('Geocode search failed:', err);
+        setSuggestions([]);
+        setShowDropdown(false);
       } finally {
-        setIsGeocoding(false);
+        if (geocodeAbortRef.current && !geocodeAbortRef.current.signal.aborted) {
+          setIsGeocoding(false);
+        }
       }
-    }, 450);
+    }, 700);
   };
 
   const handleSelectSuggestion = (opt: LocationOption) => {
@@ -180,10 +172,9 @@ export const PractoSearchBar: React.FC<PractoSearchBarProps> = ({
     let loc = selectedLocation;
 
     if (!loc && locationQuery.trim()) {
-      // Attempt direct client-side geocode if user pressed Enter without picking dropdown
       try {
         const fallbackRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locationQuery)}&format=json&limit=1`,
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locationQuery.trim())}&format=json&limit=1`,
           { headers: { 'Accept': 'application/json' } }
         );
         if (fallbackRes.ok) {
